@@ -428,6 +428,32 @@ def map(
                 "completed_at": utc_now_iso(),
             }
             run.record_stage_outcome("policy-mapper", attempt_id, record)
+            # The stage status reflects the *effective* attempt: a failed
+            # retry must not mark the stage failed when an earlier completed
+            # attempt's output is still the effective mapper output.
+            if result.status == FAILED:
+                effective = run.manifest().get("flow", {}).get("mapper_output")
+                if effective and effective.get("extraction"):
+                    effective_attempt = effective["extraction"].split("/")[2]
+                    effective_record = next(
+                        (
+                            a
+                            for a in run.manifest()["stages"]["policy-mapper"]["attempts"]
+                            if a.get("attempt_id") == effective_attempt
+                        ),
+                        None,
+                    )
+                    if effective_record and effective_record.get("status") in (
+                        COMPLETED,
+                        COMPLETED_WITH_GAPS,
+                    ):
+
+                        def keep_effective(manifest: dict) -> None:
+                            stage_rec = manifest["stages"]["policy-mapper"]
+                            stage_rec["status"] = effective_record["status"]
+                            stage_rec["latest_attempt_status"] = FAILED
+
+                        run.update_manifest(keep_effective)
             run.rebuild_inventory()
         if result.status in (COMPLETED, COMPLETED_WITH_GAPS) and not no_llm:
             _stage_record(
