@@ -73,6 +73,36 @@ at the input-readiness review for the concrete run.
   under `notes.injection_judge_scores`. The generator does not retain
   `response.model` — returned model IDs remain unknown.
 
+## Live-run model contracts (configured gateway)
+
+The live smoke run uses an OpenAI-compatible gateway. Model-specific
+request contracts discovered through labelled smoke checks:
+
+- **a fast gateway model**: rejects `max_tokens` (requires `max_completion_tokens`)
+  and any `temperature` other than 1. The mapper
+  (`--output-token-parameter`, `--temperature`) and the Garak driver
+  (`ASAGO_GARAK_TOKEN_PARAM`/`ASAGO_GARAK_TEMPERATURE` with
+  `suppressed_params`/`extra_params`) are configured accordingly.
+- **a fast gateway model and the scenario generator**: the generator's structured
+  output schemas use JSON Schema keywords (`maxProperties`) that the
+  gateway's OpenAI-strict `json_schema` validation rejects
+  (`BadRequestError 400: Invalid schema … 'maxProperties'`). The reference
+  demo works around this by patching the schema at runtime — forbidden
+  here. Resolution: the scenario role uses a gateway model whose validator
+  accepts the native schemas unchanged (a Gemini-family model accepted the same
+  schema in a labelled check). No source edits, no monkeypatching.
+- **Artifact generator**: hardcodes `temperature=0.2` upstream with no
+  configuration; a fast gateway model/a fast gateway model reject non-default temperature. The
+  artifact role therefore uses a Gemini-family model (accepts 0.2 and
+  `max_completion_tokens` via `REDTEAM_MAX_COMPLETION_TOKENS`).
+- **gpt-4o-mini**: accepted `json_schema` structured output, declared
+  `tools`, prior `assistant.tool_calls` and `role=tool` messages in the
+  labelled transport smoke checks (E5-adjacent; evidence retained with the
+  run).
+
+The target and judge share a fast gateway model per the user's smoke-run choice —
+recorded in every summary as a lack of independent validation.
+
 ## Deviations from the reference demo
 
 The demo (`asago-demo`) was consulted, not adopted. Specifically **not**
