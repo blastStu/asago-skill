@@ -22,6 +22,7 @@ Layout (information categories from the Phase 1 evidence contract):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import uuid
@@ -184,12 +185,46 @@ class RunDir:
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError as exc:
+            note = "(unreadable)"
             try:
-                stale_note = lock_path.read_text(encoding="utf-8").strip()
+                note = lock_path.read_text(encoding="utf-8").strip()
             except OSError:
-                stale_note = "(unreadable)"
+                pass
+            # A hard kill (deadline, TaskStop, crash) skips the finally that
+            # releases the lock. If the recorded pid is gone, the lock is
+            # stale: reclaim it with a recorded note rather than blocking
+            # forever. A live pid still excludes concurrent writers.
+            stale_pid = None
+            for part in note.split():
+                if part.startswith("pid="):
+                    try:
+                        stale_pid = int(part[4:])
+                    except ValueError:
+                        pass
+            if stale_pid is not None and not _pid_alive(stale_pid):
+                logging.getLogger(__name__).warning(
+                    "reclaiming stale run lock (holder gone): %s", note
+                )
+                lock_path.unlink(missing_ok=True)
+                with open(self.path / "decisions.jsonl", "a", encoding="utf-8") as handle:
+                    handle.write(
+                        json.dumps(
+                            {
+                                "schema_version": DECISION_SCHEMA_VERSION,
+                                "id": new_id("LOCK"),
+                                "recorded_at": utc_now_iso(),
+                                "category": "stale-lock-reclaim",
+                                "question": "run lock held by a dead process",
+                                "response": f"reclaimed by {holder}",
+                                "evidence": [{"note": note}],
+                                "state": "resolved",
+                            }
+                        )
+                        + "\n"
+                    )
+                return self.acquire_lock(holder)
             raise RunLockError(
-                f"run is locked by another writer (lock note: {stale_note})"
+                f"run is locked by another writer (lock note: {note})"
             ) from exc
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(f"{holder} pid={os.getpid()} at={utc_now_iso()}\n")
@@ -332,3 +367,16 @@ class Stopwatch:
             "end": utc_now_iso(),
             "duration_seconds": round(time.monotonic() - self.start_mono, 3),
         }
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether a process id is alive (signal 0 probe)."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by another user
