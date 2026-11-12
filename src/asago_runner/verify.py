@@ -48,8 +48,19 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
 
     # -- mapper stage ------------------------------------------------------
     mapper_attempts = (stages.get("policy-mapper") or {}).get("attempts", [])
+
+    def _attempt_returncode(attempt: dict) -> int | None:
+        if attempt.get("returncode") is not None:
+            return attempt["returncode"]
+        meta = run.stage_dir("policy-mapper") / attempt.get("attempt_id", "") / "attempt.json"
+        if meta.is_file():
+            return json.loads(meta.read_text(encoding="utf-8")).get("returncode")
+        return None
+
     live_mapper = [
-        a for a in mapper_attempts if not a.get("no_llm_mode") and a.get("returncode") == 0
+        a
+        for a in mapper_attempts
+        if not a.get("no_llm_mode") and _attempt_returncode(a) == 0
     ]
     latest_live = live_mapper[-1] if live_mapper else None
     if latest_live:
@@ -76,7 +87,7 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
     latest_scenario = scenario_attempts[-1] if scenario_attempts else None
     admitted_hashes: dict[str, str] = {}
     if latest_scenario and latest_scenario.get("scenario_run_dir"):
-        sdir = Path(latest_scenario["scenario_run_dir"])
+        sdir = run.path / latest_scenario["scenario_run_dir"]
         inv_path = sdir / "finalization-inventory.json"
         if not inv_path.is_file():
             check("scenario.inventory-present", False, str(inv_path))
@@ -90,7 +101,10 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
                     ok = False
                     detail.append(receipt["path"])
                 if receipt.get("scenario_id"):
-                    admitted_hashes[receipt["scenario_id"]] = receipt["sha256"]
+                    # Key by role: yaml and feature receipts share a scenario id.
+                    admitted_hashes[(receipt["scenario_id"], receipt.get("role"))] = (
+                        receipt["sha256"]
+                    )
             check(
                 "scenario.admission-receipts-hash-match",
                 ok,
@@ -120,12 +134,12 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
             if meta_path.is_file():
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 sid = entry["scenario_id"]
-                if sid in admitted_hashes:
+                if (sid, "scenario_yaml") in admitted_hashes:
                     parent_yaml = (meta.get("parent_scenario") or {}).get("scenario_yaml") or {}
                     parent_sha = parent_yaml.get("sha256")
                     check(
                         f"replay.parent-scenario-admitted.{sid}",
-                        parent_sha == admitted_hashes[sid],
+                        parent_sha == admitted_hashes[(sid, "scenario_yaml")],
                         "replay parent hash != admitted inventory hash",
                     )
                 else:

@@ -422,6 +422,8 @@ def map(
                 "attempt_id": attempt_id,
                 "attempt_dir": run.rel(attempt_dir),
                 "command": result.command,
+                "returncode": result.proc.returncode if result.proc else None,
+                "timed_out": result.proc.timed_out if result.proc else None,
                 "accounting": result.accounting or None,
                 "completed_at": utc_now_iso(),
             }
@@ -832,11 +834,12 @@ def replay_review(
             return Outcome("replay-review", run_dir).finish(COMPLETED, review="resolved")
 
         manifest = run.manifest()
-        target = None
-        judge = None
-        cfg_snapshot = manifest.get("config_snapshot", {}).get("connections", {})
-        target = cfg_snapshot.get("target")
-        judge = cfg_snapshot.get("judge")
+        cfg = _load_config(run)
+        # Resolve connections live so the reviewed target/judge identities are
+        # what evaluation will actually use (the intake snapshot may predate
+        # recorded model changes).
+        target = cfg.connections["target"].sanitized()
+        judge = cfg.connections["judge"].sanitized()
         material = bind_material(
             run,
             [(e["entry_path"].replace(str(run.path) + "/", ""), "replay entry (exact evaluated input)")
@@ -868,7 +871,7 @@ def replay_review(
                 ],
                 "target": target,
                 "judge": judge,
-                "shared_model_roles": manifest.get("shared_model_roles", []),
+                "shared_model_roles": cfg.shared_model_roles(),
                 "retry_disclosure": (
                     "Garak/SDK internal retries are not individually bounded; "
                     "the runner adds no replay of its own; the parent deadline "

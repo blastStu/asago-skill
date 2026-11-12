@@ -182,6 +182,8 @@ def evaluate_entry(
             "surface": replay_entry.get("surface"),
             "detector": DETECTOR,
             "generations": config.target_samples_per_artifact,
+            "target_model": config.connections["target"].resolve()["model"],
+            "judge_model": config.connections["judge"].resolve()["model"],
         },
     )
     if not hash_ok:
