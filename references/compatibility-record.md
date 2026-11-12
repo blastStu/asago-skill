@@ -102,10 +102,16 @@ attempts:
   with `CompletionLengthError`. a reasoning-heavy gateway model also ran the mapper ~4-5× slower
   than a fast gateway model and exceeded a 3600 s stage deadline near completion.
 - **Scenario role resolution (recorded deviation)**: with a reasoning-heavy gateway model
-  length-incompatible and a fast gateway model schema-incompatible, the scenario
-  role runs on **a Gemini-family model** — schema-accepting (verified) and
-  demo-proven within the same caps on the same pinned component. Flash-tier
-  pricing preserves the cost intent; flagged for user review.
+  length-incompatible, a fast gateway model/a fast gateway model/a fast gateway model schema-rejected
+  (OpenAI-strict `maxProperties`), and every gateway Gemini model
+  schema-rejected (Google path `INVALID_ARGUMENT` on the behavior-draft
+  schema — the reference demo needed runtime schema surgery for Gemini,
+  which is forbidden here), the scenario role runs on
+  **`a compact gateway model`**: served on the same
+  `gateway/` route as the user-selected free a reasoning-heavy gateway model, accepts the exact
+  `BehaviorDraftV2For9Handles` schema (verified by labelled schema
+  replay), and produces concise drafts (296 completion tokens on the
+  minimal probe vs the 4096 cap). Flagged for user review on return.
 - **Artifact generator**: hardcodes `temperature=0.2` upstream with no
   configuration; a fast gateway model/a fast gateway model reject non-default temperature. The
   artifact role therefore uses a model that accepts it.
