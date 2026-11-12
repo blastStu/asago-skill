@@ -73,6 +73,14 @@ def build_mapper_argv(
         ]
     if config.ocr:
         argv.append("--ocr")
+    options = config.raw.get("options") or {}
+    if options.get("mapper_output_token_parameter"):
+        argv += [
+            "--output-token-parameter",
+            str(options["mapper_output_token_parameter"]),
+        ]
+    if options.get("mapper_temperature") is not None:
+        argv += ["--temperature", str(options["mapper_temperature"])]
     env: dict[str, str] = {}
     if not no_llm and conn.get("api_key"):
         env["POLICY_MAPPER_API_KEY"] = str(conn["api_key"])

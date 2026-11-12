@@ -178,6 +178,13 @@ def run_generate(
         env["ASAGO_SCENARIO_GENERATOR_MODEL_NAME"] = str(conn["model"])
     if conn.get("api_key"):
         env["ASAGO_SCENARIO_GENERATOR_API_KEY"] = str(conn["api_key"])
+    options = config.raw.get("options") or {}
+    if options.get("scenario_temperature") is not None:
+        env["ASAGO_SCENARIO_GENERATOR_TEMPERATURE"] = str(options["scenario_temperature"])
+    if options.get("scenario_max_completion_tokens"):
+        env["ASAGO_SCENARIO_GENERATOR_MAX_COMPLETION_TOKENS"] = str(
+            options["scenario_max_completion_tokens"]
+        )
     env["ASAGO_SCENARIO_GENERATOR_TIMEOUT"] = str(min(config.stage_deadline_seconds, 300))
     proc = run_subprocess(
         argv,
@@ -187,6 +194,19 @@ def run_generate(
         stdout_path=attempt_dir / "stdout.log",
         stderr_path=attempt_dir / "stderr.log",
         dispatch_record_path=attempt_dir / "dispatch.json",
+    )
+    # Record the effective non-secret model identity for this attempt.
+    from ..config import _host_of
+
+    atomic_write_json(
+        attempt_dir / "model-identity.json",
+        {
+            "role": "scenario_llm",
+            "model": conn.get("model"),
+            "base_url_host": _host_of(conn.get("base_url")),
+            "temperature": (config.raw.get("options") or {}).get("scenario_temperature"),
+            "note": "requested model; returned model IDs are unknown unless captured",
+        },
     )
     return proc, quote_command(argv)
 

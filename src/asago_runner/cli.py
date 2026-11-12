@@ -427,7 +427,7 @@ def map(
             }
             run.record_stage_outcome("policy-mapper", attempt_id, record)
             run.rebuild_inventory()
-        if result.status == COMPLETED and not no_llm:
+        if result.status in (COMPLETED, COMPLETED_WITH_GAPS) and not no_llm:
             _stage_record(
                 run,
                 "mapper_output",

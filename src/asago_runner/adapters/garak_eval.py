@@ -197,6 +197,7 @@ def evaluate_entry(
 
     target = config.connections["target"].resolve()
     judge = config.connections["judge"].resolve()
+    options = config.raw.get("options") or {}
     env = {
         "ASAGO_GARAK_CONVERSATION_SOURCE": str(conversation_path),
         "ASAGO_GARAK_REPORT_DIR": str(dispatch_dir),
@@ -208,6 +209,11 @@ def evaluate_entry(
         "ASAGO_GARAK_JUDGE_API_KEY": str(judge["api_key"] or ""),
         "ASAGO_GARAK_GENERATIONS": str(config.target_samples_per_artifact),
         "ASAGO_GARAK_CONFIDENCE_CUTOFF": "70",
+        "ASAGO_GARAK_TEMPERATURE": str(options.get("garak_temperature", 0)),
+        "ASAGO_GARAK_MAX_TOKENS": str(options.get("garak_max_tokens", 1024)),
+        "ASAGO_GARAK_TOKEN_PARAM": str(
+            options.get("garak_token_param", "max_tokens")
+        ),
     }
     argv = [str(garak_python(garak_env_dir)), str(garak_env_dir / "asago_garak_driver.py")]
     watch = Stopwatch()

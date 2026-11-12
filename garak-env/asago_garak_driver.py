@@ -77,14 +77,23 @@ def main() -> int:
     command.start_run()
 
     def generator_options(base_url: str, api_key: str) -> dict:
-        return {
+        temperature = float(os.environ.get("ASAGO_GARAK_TEMPERATURE", "0"))
+        max_tokens = int(os.environ.get("ASAGO_GARAK_MAX_TOKENS", "1024"))
+        token_param = os.environ.get("ASAGO_GARAK_TOKEN_PARAM", "max_tokens")
+        options = {
             "uri": base_url,
             "api_key": api_key,
-            "temperature": 0,
+            "temperature": temperature,
             "stop": [],
-            "max_tokens": 1024,
             "retry_json": False,
         }
+        if token_param == "max_completion_tokens":
+            # Models that reject the legacy max_tokens parameter.
+            options["suppressed_params"] = ["max_tokens"]
+            options["extra_params"] = {"max_completion_tokens": max_tokens}
+        else:
+            options["max_tokens"] = max_tokens
+        return options
 
     target = OpenAICompatible(
         name=target_model,

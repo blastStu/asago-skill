@@ -128,8 +128,13 @@ def run_artifact_generator(
     }
     if conn.get("api_key"):
         env["OPENAI_API_KEY"] = str(conn["api_key"])
-    if config.raw.get("options", {}).get("artifact_max_tokens"):
-        env["REDTEAM_MAX_TOKENS"] = str(config.raw["options"]["artifact_max_tokens"])
+    options = config.raw.get("options") or {}
+    if options.get("artifact_max_tokens"):
+        env["REDTEAM_MAX_TOKENS"] = str(options["artifact_max_tokens"])
+    if options.get("artifact_max_completion_tokens"):
+        env["REDTEAM_MAX_COMPLETION_TOKENS"] = str(
+            options["artifact_max_completion_tokens"]
+        )
     proc = run_subprocess(
         argv,
         cwd=attempt_dir,  # clean working directory: no ambient .env
@@ -138,6 +143,19 @@ def run_artifact_generator(
         stdout_path=attempt_dir / "stdout.log",
         stderr_path=attempt_dir / "stderr.log",
         dispatch_record_path=attempt_dir / "dispatch.json",
+    )
+    # Record the effective non-secret model identity for this attempt.
+    from ..config import _host_of
+
+    atomic_write_json(
+        attempt_dir / "model-identity.json",
+        {
+            "role": "artifact_llm",
+            "model": conn.get("model"),
+            "base_url_host": _host_of(conn.get("base_url")),
+            "provider": "openai (explicit REDTEAM_PROVIDER; no auto-detection)",
+            "note": "requested model; returned model IDs are unknown unless captured",
+        },
     )
     return proc, quote_command(argv)
 
