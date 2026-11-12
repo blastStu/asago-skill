@@ -76,7 +76,8 @@ at the input-readiness review for the concrete run.
 ## Live-run model contracts (configured gateway)
 
 The live smoke run uses an OpenAI-compatible gateway. Model-specific
-request contracts discovered through labelled smoke checks:
+request contracts discovered through labelled smoke checks and live
+attempts:
 
 - **a fast gateway model**: rejects `max_tokens` (requires `max_completion_tokens`)
   and any `temperature` other than 1. The mapper
@@ -89,18 +90,31 @@ request contracts discovered through labelled smoke checks:
   (`BadRequestError 400: Invalid schema … 'maxProperties'`). The reference
   demo works around this by patching the schema at runtime — forbidden
   here. Resolution: the scenario role uses a gateway model whose validator
-  accepts the native schemas unchanged (a Gemini-family model accepted the same
-  schema in a labelled check). No source edits, no monkeypatching.
+  accepts the native schemas unchanged. No source edits, no monkeypatching.
+- **a reasoning-heavy gateway model (`the gateway model`, user-selected free model)**: accepts
+  every request shape (all temperatures, both token parameters, strict
+  json_schema with `maxProperties`, tools/prior-tool-message replay) — but
+  its structured drafts for the scenario generator's semantic stages
+  exceed that component's **hardcoded per-call completion caps**
+  (`actor_profile`/`behavior_spec`/filter 4096, `narrative`/`attack_tree`
+  8192; `min(operation_cap, transport_cap)` — an operator transport cap
+  can only lower them). Two full attempts quarantined 10/10 candidates
+  with `CompletionLengthError`. a reasoning-heavy gateway model also ran the mapper ~4-5× slower
+  than a fast gateway model and exceeded a 3600 s stage deadline near completion.
+- **Scenario role resolution (recorded deviation)**: with a reasoning-heavy gateway model
+  length-incompatible and a fast gateway model schema-incompatible, the scenario
+  role runs on **a Gemini-family model** — schema-accepting (verified) and
+  demo-proven within the same caps on the same pinned component. Flash-tier
+  pricing preserves the cost intent; flagged for user review.
 - **Artifact generator**: hardcodes `temperature=0.2` upstream with no
   configuration; a fast gateway model/a fast gateway model reject non-default temperature. The
-  artifact role therefore uses a Gemini-family model (accepts 0.2 and
-  `max_completion_tokens` via `REDTEAM_MAX_COMPLETION_TOKENS`).
+  artifact role therefore uses a model that accepts it.
 - **gpt-4o-mini**: accepted `json_schema` structured output, declared
   `tools`, prior `assistant.tool_calls` and `role=tool` messages in the
   labelled transport smoke checks (E5-adjacent; evidence retained with the
   run).
 
-The target and judge share a fast gateway model per the user's smoke-run choice —
+The target and judge share one model per the user's smoke-run choice —
 recorded in every summary as a lack of independent validation.
 
 ## Deviations from the reference demo
