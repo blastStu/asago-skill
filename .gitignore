@@ -1,1 +1,10 @@
 design-docs/
+# Runner-managed caches and run outputs
+.cache/
+runs/
+garak-env/.venv/
+garak-env/uv.lock.tmp
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/

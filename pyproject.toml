@@ -1,0 +1,50 @@
+[project]
+name = "asago-runner"
+version = "0.1.0"
+description = "Policy-to-Garak orchestration runner for the Asago component chain"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "Apache-2.0"
+dependencies = [
+    # Real Asago components, pinned to immutable commits (see
+    # references/compatibility-record.md for status and provenance).
+    "asago-policy-mapper @ git+https://github.com/asago-ai/asago-policy-mapper.git@630c77c5f82938f1180fc313324e718c379f2abf",
+    "asago-scenario-generator @ git+https://github.com/asago-ai/asago-scenario-generator.git@98fba15de8162c8d064ebff1d381d13a62f49807",
+    "asago-artifact-generator @ git+https://github.com/asago-ai/asago-artifact-generator.git@8f481944fd7abd72cd131c14ee9ab366d8d98372",
+    # Runner-owned dependencies.
+    "typer>=0.12",
+    "pyyaml>=6.0",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+]
+
+[project.scripts]
+asago-runner = "asago_runner.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "requests>=2.31",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asago_runner"]
+
+[tool.hatch.metadata]
+# The component pins above are direct git references.
+allow-direct-references = true
+
+[tool.uv]
+# The Policy Mapper declares `ai-atlas-nexus @ ...@main`, which floats. The
+# runner pins the exact commit that the pinned mapper revision's own uv.lock
+# validated (c7a5304..., package 1.2.5) so the installed library, its bundled
+# data and the runner-managed data cache are one deliberate combination.
+# Preflight resolves and verifies the *effective* installed dependency rather
+# than trusting this declaration.
+override-dependencies = [
+    "ai-atlas-nexus @ git+https://github.com/IBM/ai-atlas-nexus.git@c7a53040c45761376993386b0416a2b977591426",
+]

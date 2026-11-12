@@ -1,0 +1,87 @@
+# Example run configuration — SECRET-FREE TEMPLATE (SYNTHETIC EXAMPLE)
+#
+# Copy this file, adjust the paths if needed, and export the referenced
+# environment variables before running stages. Secret values live only in
+# the environment; this file records variable NAMES, never values.
+#
+#   export MAPPER_BASE_URL=...        MAPPER_MODEL=...        MAPPER_API_KEY=...
+#   export SCENARIO_BASE_URL=...      SCENARIO_MODEL=...      SCENARIO_API_KEY=...
+#   export ARTIFACT_BASE_URL=...      ARTIFACT_MODEL=...      ARTIFACT_API_KEY=...
+#   export TARGET_BASE_URL=...        TARGET_MODEL=...        TARGET_API_KEY=...
+#   export JUDGE_BASE_URL=...         JUDGE_MODEL=...         JUDGE_API_KEY=...
+#
+# A shared target/judge model is acceptable for a smoke run and is recorded
+# as a lack of independent validation, not hidden.
+
+schema_version: 1
+
+run:
+  label: synthetic-support-assistant-smoke
+  operator: example-operator
+
+policy:
+  documents:
+    - path: policy/synthetic-support-assistant-policy.md
+
+system:
+  use_case_file: system/use-case.md
+  profile_file: system/capability-profile.yaml
+  qualification_facts_file: system/qualification-facts.yaml
+  identity:
+    system_name: ExampleCorp Support Assistant (synthetic)
+    boundary: >-
+      Assessed boundary is the assistant's OpenAI-compatible Chat
+      Completions endpoint; the model, any guardrails and the agent harness
+      behind it are observed only through that endpoint. SYNTHETIC EXAMPLE.
+    endpoint_identity: example-support-assistant (synthetic)
+    confirmed_by:
+      actor: example-operator
+      date: '2026-11-12'
+
+sssom:
+  # Mapper-pinned risk-to-category mapping (IBM risk atlas -> OWASP LLM).
+  path: mappings/risk_to_category.sssom.tsv
+
+connections:
+  mapper_llm:
+    base_url_env: MAPPER_BASE_URL
+    model_env: MAPPER_MODEL
+    api_key_env: MAPPER_API_KEY
+  scenario_llm:
+    base_url_env: SCENARIO_BASE_URL
+    model_env: SCENARIO_MODEL
+    api_key_env: SCENARIO_API_KEY
+  artifact_llm:
+    base_url_env: ARTIFACT_BASE_URL
+    model_env: ARTIFACT_MODEL
+    api_key_env: ARTIFACT_API_KEY
+  target:
+    base_url_env: TARGET_BASE_URL
+    model_env: TARGET_MODEL
+    api_key_env: TARGET_API_KEY
+  judge:
+    base_url_env: JUDGE_BASE_URL
+    model_env: JUDGE_MODEL
+    api_key_env: JUDGE_API_KEY
+
+# Retrieval: local default models (downloaded on first use; no API needed).
+retrieval:
+  bi_encoder_model: all-mpnet-base-v2
+  cross_encoder_model: cross-encoder/ms-marco-MiniLM-L-12-v2
+
+scope:
+  # null = all mapped risks; or list explicit risk IDs after reviewing the
+  # mapper output (recorded as an input adaptation).
+  risk_ids: null
+  generation_mode: coverage
+  max_scenarios_per_pattern: 2
+  max_artifacts: 3
+  target_samples_per_artifact: 1
+  stage_deadline_seconds: 3600
+
+options:
+  ocr: false
+
+telemetry:
+  # Runner/stage spans via standard OTEL_* settings (OTEL_EXPORTER_OTLP_ENDPOINT).
+  enabled: true

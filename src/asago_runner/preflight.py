@@ -1,0 +1,253 @@
+"""LLM-free readiness preflight.
+
+Checks files/formats, output permissions, effective non-secret configuration,
+credential presence, component entry points, the Garak environment, Nexus
+dependency/data pairing (fetch + verify + native loader), capability/facts
+schema validation against the native models, and the SSSOM mapping contract.
+Produces a data-flow table for the input-readiness review. No inference
+requests are made; local parser/retrieval model downloads are labelled
+separately when detected.
+"""
+
+from __future__ import annotations
+
+import importlib
+import importlib.metadata as im
+import json
+import os
+import shutil
+from pathlib import Path
+from typing import Any
+
+from .config import RunConfig
+from .evidence import RunDir, atomic_write_json
+from .hashing import sha256_file
+from .intake import SUPPORTED_SUFFIXES
+from .nexus import NexusError, ensure_nexus_cache, exercise_native_loader
+
+_CHECKS: list[dict] = []
+
+
+def _check(name: str, ok: bool, detail: Any = None, blocker: bool = True) -> bool:
+    _CHECKS.append(
+        {
+            "check": name,
+            "ok": bool(ok),
+            "detail": detail,
+            "blocker": blocker and not ok,
+        }
+    )
+    return bool(ok)
+
+
+def garak_commit(garak_env_dir: Path) -> tuple[str | None, str | None]:
+    """Read the garak install commit from the garak environment."""
+    import subprocess
+
+    garak_python = garak_env_dir / ".venv" / "bin" / "python"
+    if not garak_python.is_file():
+        return None, "garak environment not installed"
+    proc = subprocess.run(
+        [
+            str(garak_python),
+            "-c",
+            "import json,importlib.metadata as im;"
+            "d=im.distribution('garak');"
+            "print(json.dumps({'version': d.version,"
+            " 'commit': json.loads(d.read_text('direct_url.json'))"
+            ".get('vcs_info',{}).get('commit_id')}))",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        return None, proc.stderr.strip()[:200] or "garak metadata read failed"
+    info = json.loads(proc.stdout.strip())
+    return info.get("commit"), info.get("version")
+
+
+def run_preflight(
+    run: RunDir,
+    config: RunConfig,
+    cache_dir: Path,
+    garak_env_dir: Path,
+    *,
+    fetch_nexus: bool = True,
+) -> dict:
+    """Run all preflight checks; returns a report dict."""
+    _CHECKS.clear()
+
+    # 1. Inputs exist and formats are supported.
+    for policy_path in config.policy_paths():
+        exists = policy_path.is_file()
+        supported = policy_path.suffix.lower() in SUPPORTED_SUFFIXES
+        _check(
+            f"policy.exists.{policy_path.name}",
+            exists,
+            str(policy_path) if not exists else None,
+        )
+        _check(
+            f"policy.format.{policy_path.name}",
+            supported,
+            f"unsupported suffix {policy_path.suffix}" if not supported else None,
+        )
+    for label, path in (
+        ("use-case", config.resolved_path("use_case_file")),
+        ("profile", config.resolved_path("profile_file")),
+        ("qualification-facts", config.resolved_path("qualification_facts_file")),
+        ("sssom", config.sssom_path()),
+    ):
+        _check(f"input.exists.{label}", path.is_file(), str(path))
+
+    # 2. Output location writable.
+    probe = run.path / ".write-probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        _check("run.writable", True)
+    except OSError as exc:
+        _check("run.writable", False, str(exc))
+
+    # 3. Component entry points present in the runner environment.
+    from .paths import component_cli
+
+    for cli in (
+        "asago-policy-mapper",
+        "asago-scenario-generator",
+        "asago-artifact-generator",
+    ):
+        try:
+            resolved = component_cli(cli)
+            _check(f"component.cli.{cli}", True, resolved)
+        except FileNotFoundError as exc:
+            _check(f"component.cli.{cli}", False, str(exc))
+
+    # 4. Credential presence (values never recorded).
+    for role, spec in config.connections.items():
+        values = spec.resolve()
+        _check(
+            f"credentials.{role}",
+            bool(values["base_url"]) and bool(values["model"]) and bool(values["api_key"]),
+            {
+                "base_url_env_set": bool(values["base_url"]),
+                "model_env_set": bool(values["model"]),
+                "api_key_env_set": bool(values["api_key"]),
+                "env_names": [spec.base_url_env, spec.model_env, spec.api_key_env],
+            },
+        )
+
+    # 5. Nexus dependency/data pairing: fetch, verify, exercise loader.
+    nexus_report: dict | None = None
+    try:
+        result = ensure_nexus_cache(cache_dir, fetch=fetch_nexus)
+        loader = exercise_native_loader(Path(result.cache_dir))
+        result.loader = loader
+        nexus_report = result.summary()
+        _check("nexus.dependency-data-pairing", True, nexus_report)
+        _check(
+            "nexus.loader-counts-agree",
+            loader.get("counts_agree", False),
+            "sparse cache load must agree with the installed-package-only load",
+        )
+    except NexusError as exc:
+        _check("nexus.dependency-data-pairing", False, str(exc))
+
+    # 6. Garak environment present and pinned.
+    garak_python = garak_env_dir / ".venv" / "bin" / "python"
+    _check("garak.environment", garak_python.is_file(), str(garak_python))
+    if garak_python.is_file():
+        commit, version = garak_commit(garak_env_dir)
+        _check(
+            "garak.pinned-commit",
+            commit == "06aba1a2c9b142d561eeeff08dfaffcbe77487c3",
+            f"installed at {commit} (version {version})",
+        )
+
+    # 7. Capability profile + qualification facts validate against the native
+    #    pydantic models (model-free schema checks).
+    try:
+        from asago_scenario_generator.models.capability_profile import CapabilityProfile
+
+        import yaml
+
+        profile_data = yaml.safe_load(
+            config.resolved_path("profile_file").read_text(encoding="utf-8")
+        )
+        CapabilityProfile.model_validate(profile_data)
+        _check("scenario.profile-schema", True)
+    except Exception as exc:  # noqa: BLE001
+        _check("scenario.profile-schema", False, str(exc))
+    facts_path = config.resolved_path("qualification_facts_file")
+    try:
+        facts = yaml.safe_load(facts_path.read_text(encoding="utf-8"))
+        has_facts = isinstance(facts, dict) and isinstance(facts.get("facts"), list)
+        _check(
+            "scenario.facts-schema",
+            has_facts,
+            None if has_facts else "facts must be a list under 'facts'",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _check("scenario.facts-schema", False, str(exc))
+
+    # 8. SSSOM mapping contract with the native loader/index.
+    try:
+        from asago_scenario_generator.data.sssom import load_sssom
+
+        mappings = load_sssom(config.sssom_path())
+        subjects = {m.subject_id for m in mappings}
+        predicates: dict[str, int] = {}
+        for mapping in mappings:
+            predicates[mapping.predicate_id] = predicates.get(mapping.predicate_id, 0) + 1
+        _check(
+            "sssom.native-load",
+            bool(mappings),
+            {"count": len(mappings), "predicates": predicates},
+        )
+        if config.selected_risk_ids:
+            missing = [rid for rid in config.selected_risk_ids if rid not in subjects]
+            _check(
+                "sssom.selected-risks-mapped",
+                not missing,
+                f"selected risk IDs without a mapping row: {missing}",
+            )
+    except Exception as exc:  # noqa: BLE001
+        _check("sssom.native-load", False, str(exc))
+
+    # 9. Local retrieval/parser assets (labelled, informational).
+    hf_home = Path(
+        os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")
+    )
+    retrieval = config.raw.get("retrieval") or {}
+    bi_encoder = retrieval.get("bi_encoder_model", "all-mpnet-base-v2")
+    cached = any(
+        (hf_home / "hub").glob(f"models--*--{bi_encoder.replace('/', '--')}*")
+    ) if (hf_home / "hub").is_dir() else False
+    _check(
+        "assets.local-retrieval-models",
+        True,  # informational: download happens on first map stage if absent
+        {
+            "bi_encoder": bi_encoder,
+            "cached_locally": cached,
+            "note": (
+                "local model download on first use is an asset fetch, not an "
+                "inference request" + ("" if cached else "; first map stage will download")
+            ),
+        },
+        blocker=False,
+    )
+
+    blockers = [c for c in _CHECKS if c["blocker"]]
+    report = {
+        "ok": not blockers,
+        "checks": _CHECKS,
+        "blockers": blockers,
+        "data_flow": config.data_flow_table(),
+        "shared_model_roles": config.shared_model_roles(),
+        "note": (
+            "preflight performs no inference requests; connection smoke checks "
+            "are separate, labelled operations"
+        ),
+    }
+    atomic_write_json(run.path / "preflight" / "preflight.json", report)
+    return report

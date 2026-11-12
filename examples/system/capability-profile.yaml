@@ -1,0 +1,68 @@
+# Capability profile: ExampleCorp Support Assistant (SYNTHETIC EXAMPLE)
+# Reviewed system context for the taxonomy/risk scenario workflow.
+zones_active:
+- input
+- reasoning
+- tool_execution
+- memory
+confidence: high
+kc_subcodes:
+- KC1.1
+- KC2.1
+- KC3.3
+- KC4.3
+- KC5.3
+- KC6.1.2
+- KC6.3.2
+- KC6.3.3
+- KCX-PMEM
+- KCX-HITL
+entry_points:
+- name: customer chat messages via app and web chat
+  entry_point_type: user_input
+  direction: bidirectional
+  controllability: direct
+- name: RAG knowledge retrieval response
+  entry_point_type: external_content
+  direction: input
+  controllability: indirect
+  ingress_zone: tool_execution
+tool_inventory:
+- name: order lookup API
+  description: Retrieves the authenticated customer's purchase history, order details, item prices and payment status
+- name: payment scheduling API
+  description: Reschedules or adjusts payment due dates for buy-now-pay-later installments
+- name: refund processing API
+  description: Processes refunds the customer explicitly requested, within the published refund limits
+- name: human agent escalation
+  description: Transfers the conversation to a human customer service agent
+- name: RAG knowledge retrieval
+  description: Retrieves relevant support documentation and policy information to ground responses
+external_integrations:
+- name: ExampleCorp backend order and payment services
+  integration_type: api
+  auth_method: service_account
+  data_sensitivity: high
+- name: support article knowledge base
+  integration_type: api
+  auth_method: service_account
+  data_sensitivity: medium
+trust_boundaries:
+- name: customer-input-to-conversational-reasoning
+  from_zone: input
+  to_zone: reasoning
+  controls:
+  - input validation
+  confidence: explicit
+- name: retrieved-content-to-conversational-reasoning
+  from_zone: tool_execution
+  to_zone: reasoning
+  controls:
+  - untrusted content handling policy
+  confidence: explicit
+- name: assistant-to-backend-services
+  from_zone: reasoning
+  to_zone: tool_execution
+  controls:
+  - service account scoping
+  confidence: explicit
