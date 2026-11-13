@@ -49,6 +49,11 @@ five connections and the run scope. Edit it before `new-run`.
 
 ## 2. Create the run
 
+Runs are isolated from each other by default: `new-run` without `--run-dir`
+creates the run under `~/.asago/runs/<label>` (override with `--runs-root`
+or `$ASAGO_RUNNER_RUNS_ROOT`), outside the repository. This walkthrough
+places it explicitly for readability:
+
 ```bash
 $ .venv/bin/asago-runner new-run --config config.example.yaml --run-dir demo-run
 ```

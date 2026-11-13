@@ -130,18 +130,43 @@ def _stage_record(run: RunDir, stage: str, **fields) -> dict:
 def new_run(
     config: Annotated[Path, typer.Option("--config", help="Run configuration YAML")],
     run_dir: Annotated[
-        Optional[Path], typer.Option("--run-dir", help="Target run directory")
-    ],
+        Optional[Path],
+        typer.Option(
+            "--run-dir",
+            help="Target run directory (omit to create an isolated run under "
+            "the runs root, outside the repository)",
+        ),
+    ] = None,
     cache_dir: Annotated[
         Path, typer.Option(help="Runner-managed cache directory")
     ] = DEFAULT_CACHE_DIR,
+    runs_root: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--runs-root",
+            help="Root for new runs when --run-dir is not given (default "
+            "~/.asago/runs, or $ASAGO_RUNNER_RUNS_ROOT). Runs live outside "
+            "the repository so each assessment is isolated from prior runs.",
+        ),
+    ] = None,
 ):
     """Create a run directory, snapshot config and copy original inputs."""
+    from .paths import default_runs_root, sanitize_run_name
+
     try:
         cfg = RunConfig.load(config)
     except ConfigError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    target = run_dir or Path("runs") / f"run-{utc_now_iso().replace(':', '').replace('-', '')[:15]}"
+    if run_dir is not None:
+        target = run_dir
+    else:
+        root = (runs_root or default_runs_root()).resolve()
+        label = sanitize_run_name((cfg.raw.get("run") or {}).get("label"))
+        name = label or f"run-{utc_now_iso().replace(':', '').replace('-', '')[:15]}"
+        target = root / name
+        if target.exists():
+            # Same label run before: keep it isolated, don't touch it.
+            target = root / f"{name}-{utc_now_iso().replace(':', '').replace('-', '')[:15]}"
     if target.exists():
         raise typer.BadParameter(f"{target} already exists")
     # Validate every referenced input exists before creating anything.
@@ -204,6 +229,7 @@ def new_run(
                 "originals_map": path_map,
                 "shared_model_roles": cfg.shared_model_roles(),
                 "cache_dir": str(cache_dir.resolve()),
+                "runs_root": str(target.parent.resolve()),
                 "garak_env_dir": str(DEFAULT_GARAK_ENV.resolve()),
             }
         )
@@ -214,6 +240,7 @@ def new_run(
         COMPLETED,
         run_id=run_id,
         policy_originals=[run.rel(p) for p in policy_copies],
+        runs_root=str(target.parent.resolve()),
         next_step="asago-runner preflight " + str(run.path),
     )
 

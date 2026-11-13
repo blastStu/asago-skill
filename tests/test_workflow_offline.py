@@ -331,3 +331,57 @@ class TestDesignTimeRuns:
         summary = build_summary(run)
         assert summary["subject"] == "proposed"
         assert any("design-time run" in n for n in summary["notes"])
+
+
+class TestRunIsolation:
+    """New runs default outside the repo, under a configurable root."""
+
+    def test_default_run_goes_to_runs_root(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ASAGO_RUNNER_RUNS_ROOT", str(tmp_path / "root"))
+        cfg = _write_config(tmp_path, [POLICY_A])
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        code, out, _, _ = _run("new-run", "--config", str(cfg), env_extra=env)
+        assert code == 0
+        # Label-derived name under the root, not under ./runs in cwd
+        assert out["run_dir"].startswith(str(tmp_path / "root"))
+        assert "/runs/" not in out["run_dir"].replace(str(tmp_path / "root"), "")
+        assert (tmp_path / "root" / "workflow-test").is_dir()
+
+    def test_same_label_collision_gets_unique_suffix(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ASAGO_RUNNER_RUNS_ROOT", str(tmp_path / "root"))
+        cfg = _write_config(tmp_path, [POLICY_A])
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        _run("new-run", "--config", str(cfg), env_extra=env)
+        code, out, _, _ = _run("new-run", "--config", str(cfg), env_extra=env)
+        assert code == 0
+        assert out["run_dir"] != str(tmp_path / "root" / "workflow-test")
+        # The first run is untouched.
+        assert (tmp_path / "root" / "workflow-test" / "run.json").is_file()
+
+    def test_runs_root_flag_overrides_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ASAGO_RUNNER_RUNS_ROOT", str(tmp_path / "env-root"))
+        cfg = _write_config(tmp_path, [POLICY_A])
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        code, out, _, _ = _run("new-run", "--config", str(cfg),
+                               "--runs-root", str(tmp_path / "flag-root"),
+                               env_extra=env)
+        assert code == 0
+        assert out["run_dir"].startswith(str(tmp_path / "flag-root"))
+
+    def test_stages_never_touch_sibling_runs(self, tmp_path, monkeypatch):
+        """Two runs in the same root stay independent."""
+        monkeypatch.setenv("ASAGO_RUNNER_RUNS_ROOT", str(tmp_path / "root"))
+        cfg = _write_config(tmp_path, [POLICY_A])
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        _, first, _, _ = _run("new-run", "--config", str(cfg), env_extra=env)
+        _, second, _, _ = _run("new-run", "--config", str(cfg), env_extra=env)
+        run_a, run_b = first["run_dir"], second["run_dir"]
+        # Progress on run B leaves run A's manifest untouched.
+        _run("intake", run_b, env_extra=env)
+        import json as j
+
+        manifest_a = j.loads((Path(run_a) / "run.json").read_text())
+        assert "effective_inputs" not in manifest_a.get("flow", {})
+        assert "effective_inputs" in j.loads(
+            (Path(run_b) / "run.json").read_text()
+        )["flow"]

@@ -37,6 +37,15 @@ user prepare inputs, present reviews, explain progress and link results.
 8. **This is a guided process, never a silent batch job.** Open with the
    plan, narrate every step (before/during/after), and show the progress
    checklist between stages — see "The guided experience" below.
+9. **Every run is isolated.** A run is a self-contained directory created
+   outside the repository (under the runs root; `new-run` prints the path).
+   Never inspect, reference, reuse or "continue" another run — including
+   archived ones — unless the user explicitly names it. Prior runs must not
+   influence a new assessment: not their inputs, decisions, outputs or
+   gaps. The only shared state is the verified, content-hashed IBM risk
+   data cache and local model assets, which are checked assets, not run
+   evidence. When the user asks for an assessment, always start from
+   `new-run`.
 
 ## The guided experience (always)
 
@@ -204,8 +213,10 @@ at a time — narrating before, during and after each, and showing the
 `status` checklist between stages. Never chain stages silently.
 
 ```bash
-RUN=runs/<label>
-.venv/bin/asago-runner new-run --config <config.yaml> --run-dir $RUN
+# new-run creates an isolated run outside the repo and prints its path:
+.venv/bin/asago-runner new-run --config <config.yaml>
+# → {"run_dir": "/Users/…/.asago/runs/<label>", …}
+RUN=<that path>   # use the printed run_dir for every later command
 .venv/bin/asago-runner preflight  $RUN      # → needs-review: input readiness
 # PRESENT the request (see below); after the user answers:
 .venv/bin/asago-runner respond $RUN/reviews/input-readiness.request.json \

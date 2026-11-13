@@ -33,9 +33,15 @@ asago-runner respond    REQUEST --decision D [--actor A] [--notes N]
                         [--clarification TEXT] [--reconciliation-file FILE]
 ```
 
-`RUN` is the run directory created by `new-run`. The pipeline order is the
-command order; each stage refuses to run before its prerequisites are
-recorded (with actionable blockers). `--no-llm` on `map` is the model-free
+`RUN` is the run directory created by `new-run`. **Runs are isolated**: by
+default `new-run` creates the run under `~/.asago/runs/<label>` (override
+with `--runs-root` or `$ASAGO_RUNNER_RUNS_ROOT`, or place one explicitly
+with `--run-dir`), outside the repository, so a run is never polluted by —
+or distracts an agent with — prior runs. Each run directory is
+self-contained (originals, config snapshot, evidence, reports), and stages
+never read other runs. The pipeline order is the command order; each stage
+refuses to run before its prerequisites are recorded (with actionable
+blockers). `--no-llm` on `map` is the model-free
 IR-only experiment mode; its output does not advance the pipeline (the
 Scenario Generator's native contract rejects ungrounded extractions).
 

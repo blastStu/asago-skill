@@ -132,8 +132,11 @@ completed-with-gaps · `2` needs-review · `3` blocked · `1` failed — an
 incomplete stage can never look like success.
 
 ```bash
-RUN=runs/my-assessment
-.venv/bin/asago-runner new-run --config my-config.yaml --run-dir $RUN
+# Runs are created in isolation, outside the repository (default
+# ~/.asago/runs/<label>; override with --runs-root or ASAGO_RUNNER_RUNS_ROOT,
+# or place one explicitly with --run-dir). new-run prints the path:
+.venv/bin/asago-runner new-run --config my-config.yaml
+RUN=<the printed run_dir>
 .venv/bin/asago-runner preflight  $RUN        # → needs-review (request file written)
 .venv/bin/asago-runner respond $RUN/reviews/input-readiness.request.json \
     --decision approve --actor "your-name" --notes "checked the data-flow table"
