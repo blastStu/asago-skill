@@ -34,6 +34,71 @@ user prepare inputs, present reviews, explain progress and link results.
 7. **Speak the user's language.** If their documents are not in English,
    keep originals and prepare any translation as a separately reviewed
    derivation; record material adaptations.
+8. **This is a guided process, never a silent batch job.** Open with the
+   plan, narrate every step (before/during/after), and show the progress
+   checklist between stages — see "The guided experience" below.
+
+## The guided experience (always)
+
+This is a guided process, not a batch job. **Never run silently.** Three
+rules, applied throughout:
+
+**1. Open with the plan.** The moment a user starts an Asago run (after
+intake questions are answered and the configuration exists), tell them the
+whole journey before running anything:
+
+> Welcome to Asago. Here's what we're going to do, in order:
+> 1. **Check the environment** — installs, the IBM risk data, your model
+>    connections (no model calls yet)
+> 2. **Your review: input readiness** — you approve the documents, where
+>    their text will be sent, the models and the scope
+> 3. **Assess your policies** — every document is parsed and checked; if you
+>    supplied several, you resolve any conflicts between them
+> 4. **Run the Policy Mapper** — your policy text becomes a risk landscape
+>    with evidence pointing back at your own words
+> 5. **Generate scenarios** — those risks, combined with your system
+>    description, become concrete attack scenarios
+> 6. **Generate test artifacts** — scenarios become validated replay
+>    conversations (we check each one can actually be represented before
+>    spending model calls)
+> 7. **Your review: the test plan** — you see the *exact* conversation that
+>    will be sent to your target, and approve it
+> 8. **Evaluate** — the replay is sent to your target and judged
+> 9. **Report and verify** — an offline HTML overview, and a consistency
+>    check of all the evidence
+>
+> Two steps need decisions from you (2 and 7); the rest run on their own.
+> Shall we start with the environment check?
+
+Adapt the wording to the user and their language; keep the structure.
+
+**2. Narrate every step — before, during, after.**
+- *Before:* what is about to run, what it does in one sentence, and roughly
+  how long it takes ("the mapper makes hundreds of small model calls — this
+  took ~15 minutes in our test run").
+- *During:* long stages are not silent. Say what is running. If a stage
+  fails, say what happened and what you're doing about it before retrying.
+- *After:* the outcome in plain language (not raw JSON): what was found,
+  what was excluded and why, then show the checklist and say what's next.
+
+**3. Show the checklist after every stage.** Run
+`.venv/bin/asago-runner status <run>` and quote its progress block
+verbatim — it is the canonical checklist:
+
+```
+Asago run progress (run 4b6f65df5ab1):
+  [x] setup         Create the run (config snapshot, originals copied)
+  [x] preflight     Environment check — no model calls (...)
+  [!] input-review  YOUR REVIEW: input readiness (...)  ← waiting on you
+  [ ] map           Policy Mapper — policy text → taxonomy risks (...)
+  ...
+  4 step(s) remaining.
+```
+
+Then one line on what happens next. When a step shows *completed with
+gaps*, say what the gaps mean in that stage's own terms (e.g. "the mapper
+also found risks in taxonomies the next stage can't consume — they're
+recorded, not lost").
 
 ## Setup (once)
 
@@ -83,11 +148,15 @@ recorded as a lack of independent validation.
 
 ### 2. Run the stages
 
+Open with the plan (see "The guided experience"), then run the stages one
+at a time — narrating before, during and after each, and showing the
+`status` checklist between stages. Never chain stages silently.
+
 ```bash
 RUN=runs/<label>
 .venv/bin/asago-runner new-run --config <config.yaml> --run-dir $RUN
 .venv/bin/asago-runner preflight  $RUN      # → needs-review: input readiness
-# present the request; then:
+# PRESENT the request (see below); after the user answers:
 .venv/bin/asago-runner respond $RUN/reviews/input-readiness.request.json \
     --decision approve --actor "<user>" --notes "<visible notes>"
 .venv/bin/asago-runner preflight  $RUN --response $RUN/reviews/input-readiness.response.json
@@ -96,11 +165,33 @@ RUN=runs/<label>
 .venv/bin/asago-runner scenarios  $RUN      # projection preflight + generation
 .venv/bin/asago-runner artifacts  $RUN      # eligibility + Artifact Generator + replay entries
 .venv/bin/asago-runner replay-review $RUN   # → needs-review: generated test plan
-# present the replay entries; then respond as above with the test-plan request
+# PRESENT the replay entries; after the user approves:
+.venv/bin/asago-runner respond $RUN/reviews/test-plan.request.json \
+    --decision approve --actor "<user>" --notes "<visible notes>"
+.venv/bin/asago-runner replay-review $RUN --response $RUN/reviews/test-plan.response.json
 .venv/bin/asago-runner evaluate   $RUN      # Garak, one artifact per subprocess
 .venv/bin/asago-runner report     $RUN      # summary.json + offline index.html
 .venv/bin/asago-runner verify-run $RUN      # model-free consistency verification
 ```
+
+Stage-specific narration cues (say these in your own words):
+
+- **preflight** — "checking your environment: the pinned components, the
+  IBM risk data (fetched automatically — you don't need a clone), your
+  credentials, and your input formats. No model calls happen here."
+- **map** — "the mapper reads your policy and identifies risks with
+  evidence. It makes many small model calls, so this can take a while."
+  Afterwards: how many risks, in which taxonomies, and which of those the
+  next stage can actually use (the rest are recorded gaps, not losses).
+- **scenarios** — "your risks plus your system description become attack
+  scenarios. Some candidates get quarantined by the component's own quality
+  gates — that's normal and they're kept in the evidence."
+- **artifacts** — "each admitted scenario becomes a replay conversation.
+  First we check it can be faithfully represented (an attack on a
+  knowledge-base feed, for example, must not be silently turned into a
+  plain chat message)."
+- **evaluate** — "sending the approved replay to your target and judging
+  the response. One artifact at a time, under a deadline."
 
 Notes:
 

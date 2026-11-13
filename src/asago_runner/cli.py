@@ -1057,12 +1057,19 @@ def verify_run_cmd(run_dir: Annotated[str, typer.Argument(help="Run directory")]
 
 @app.command()
 def status(run_dir: Annotated[str, typer.Argument(help="Run directory")]):
-    """Print the run's current machine-readable state."""
+    """Print the run's current state: a progress checklist plus machine-readable JSON."""
+    from .reporting import derive_progress, render_progress_checklist
+
     run = _load_run(run_dir)
     manifest = run.manifest()
+    progress = derive_progress(manifest, run.path)
+    # Human-readable checklist first; the final stdout line stays the JSON
+    # contract. Agents should quote this block when narrating progress.
+    print(render_progress_checklist(progress, manifest.get("run_id")))
     return Outcome("status", run_dir).finish(
         COMPLETED,
         run_id=manifest.get("run_id"),
+        progress=progress,
         stages=manifest.get("stages", {}),
         flow=manifest.get("flow", {}),
     )
