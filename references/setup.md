@@ -82,6 +82,28 @@ independent validation. The mapper's retrieval models default to local
 CPU models (downloaded on first use); remote embedding/reranker endpoints
 can be configured under `retrieval:` in the run configuration.
 
+## Choosing models per role
+
+Bring whichever models you want — each role only needs to support the
+request shapes that role actually sends. The requirements below come from
+the pinned components' behaviour (see
+`references/compatibility-record.md` for the measured background); when a
+model does not meet one, the stage fails honestly with a recorded reason
+rather than degrading silently.
+
+| Role | The model must support | Typical failure if not |
+| --- | --- | --- |
+| **mapper_llm** | Structured output via `response_format: json_schema`; whichever output-token parameter and temperature you configure (`options.mapper_output_token_parameter`, `options.mapper_temperature` — e.g. some models accept only `max_completion_tokens` and `temperature=1`) | HTTP 400 on unsupported parameters; set the matching option |
+| **scenario_llm** | Strict `json_schema` including less-common JSON Schema keywords (e.g. `maxProperties`), **and** structured drafts that fit the component's hardcoded per-call completion caps (4096 tokens for actor-profile/behavior/filter calls, 8192 for narrative/attack-tree — an operator transport cap can only lower these) | Schema-rejecting endpoints return HTTP 400; verbose or reasoning-heavy models hit `CompletionLengthError` and candidates are quarantined |
+| **artifact_llm** | The generator hardcodes `temperature=0.2` (no override) and your configured completion limit (`options.artifact_max_completion_tokens`) | Models that accept only `temperature=1` fail every artifact call |
+| **target** | Chat Completions with the replay's message shapes; for tool-return replay also declared `tools`, prior `assistant.tool_calls` and `role=tool` messages | Refusal/400 at evaluation; tool-message replay needs the shapes verified (the runner's labelled smoke checks do this) |
+| **judge** | Plain chat completion returning parseable JSON `{"success": 0-100, "reasoning": ...}` | Non-JSON or empty responses make the evaluation `inconclusive` (never a false verdict) |
+
+A quick way to sanity-check a candidate model before a full run: replay the
+labelled smoke checks (schema, temperature/token parameters, tools + prior
+tool messages) as shown in the compatibility record — a few one-token
+requests, no policy content.
+
 ## Telemetry (optional)
 
 Runner/stage spans export through the standard OpenTelemetry settings —

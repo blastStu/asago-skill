@@ -67,7 +67,11 @@ checklist and question phrasing):
 - **Model connections** per role (mapper/scenario/artifact generation,
   target, judge) as environment variables named in the run configuration.
   Copy `examples/config.example.yaml`, point it at their documents, and have
-  them export the env vars it names. Ask whether concerns are missing from
+  them export the env vars it names. Any OpenAI-compatible model works, but
+  each role has request-shape requirements (structured output, token/temperature
+  parameters, completion budgets) — see "Choosing models per role" in
+  `references/setup.md` before picking, and sanity-check candidates with the
+  labelled smoke checks. Ask whether concerns are missing from
   the policy; any supplement is a draft the user must verify before use.
 - **Run scope**: which risks/surfaces, generation limits, target samples.
 
