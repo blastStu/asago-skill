@@ -74,11 +74,16 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
             check(
                 "mapper.llm-calls-evidence",
                 bool(llm_calls),
-                f"{len(llm_calls)} native call records; a grounded live run "
-                "must retain model-call evidence",
+                f"{len(llm_calls)} native model-call records retained"
+                if llm_calls
+                else "a grounded live run must retain model-call evidence",
             )
             risks = extraction.get("risks", [])
-            check("mapper.risks-nonempty", bool(risks), "zero matched risks")
+            check(
+                "mapper.risks-nonempty",
+                bool(risks),
+                f"{len(risks)} risks matched" if risks else "zero matched risks",
+            )
     else:
         check("mapper.live-attempt-present", False, "no completed live mapper attempt")
 
@@ -127,7 +132,9 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
             check(
                 f"replay.entry-intact.{entry['scenario_id']}",
                 ok,
-                f"hash mismatch or missing file at {entry_path}",
+                "hash verified"
+                if ok
+                else f"hash mismatch or missing file at {entry_path}",
             )
             # Parent artifact must trace to an admitted scenario.
             meta_path = Path(entry["meta_path"])
@@ -137,10 +144,13 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
                 if (sid, "scenario_yaml") in admitted_hashes:
                     parent_yaml = (meta.get("parent_scenario") or {}).get("scenario_yaml") or {}
                     parent_sha = parent_yaml.get("sha256")
+                    match = parent_sha == admitted_hashes[(sid, "scenario_yaml")]
                     check(
                         f"replay.parent-scenario-admitted.{sid}",
-                        parent_sha == admitted_hashes[(sid, "scenario_yaml")],
-                        "replay parent hash != admitted inventory hash",
+                        match,
+                        "parent scenario hash matches the admitted inventory"
+                        if match
+                        else "replay parent hash != admitted inventory hash",
                     )
                 else:
                     check(
@@ -151,10 +161,13 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
                 artifact_sha = (meta.get("parent_artifact") or {}).get("sha256")
                 artifact_path = (meta.get("parent_artifact") or {}).get("path")
                 if artifact_path and Path(artifact_path).is_file():
+                    intact = sha256_file(artifact_path) == artifact_sha
                     check(
                         f"replay.parent-artifact-intact.{sid}",
-                        sha256_file(artifact_path) == artifact_sha,
-                        "parent artifact changed after replay entry was built",
+                        intact,
+                        "parent artifact unchanged since replay entry was built"
+                        if intact
+                        else "parent artifact changed after replay entry was built",
                     )
         # Surface + derivations recorded in the summary.
         summary_path = run.path / "reports" / "summary.json"
@@ -163,12 +176,16 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
             check(
                 "summary.surfaces-recorded",
                 bool(summary.get("tested_surface")),
-                "summary must name the tested surface",
+                f"tested surface: {summary.get('tested_surface')}"
+                if summary.get("tested_surface")
+                else "summary must name the tested surface",
             )
             check(
                 "summary.shared-model-flags",
                 "shared_model_roles" in summary,
-                "summary must record shared-model role flags",
+                "shared-model roles recorded"
+                if "shared_model_roles" in summary
+                else "summary must record shared-model role flags",
             )
     else:
         check("artifact.replay-entries-present", False, "no replay entries recorded")
@@ -179,7 +196,7 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
     for attempt in garak_attempts:
         dispatches.extend(attempt.get("dispatches", []))
     for dispatch in dispatches:
-        ddir = Path(dispatch["dispatch_dir"])
+        ddir = run.path / dispatch["dispatch_dir"]
         outcome_path = ddir / "outcome.json"
         if not outcome_path.is_file():
             check(f"garak.outcome-present.{dispatch['scenario_id']}", False, str(ddir))
@@ -187,10 +204,13 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
         outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
         attempts_rows = outcome.get("attempts", [])
         if outcome["outcome"] in ("attack_succeeded", "attack_not_demonstrated"):
+            has_scores = any(a.get("detector_score") is not None for a in attempts_rows)
             check(
                 f"garak.detector-results-present.{dispatch['scenario_id']}",
-                any(a.get("detector_score") is not None for a in attempts_rows),
-                "a verdict without a native detector result is invalid",
+                has_scores,
+                "native detector results present for the verdict"
+                if has_scores
+                else "a verdict without a native detector result is invalid",
             )
         else:
             check(
@@ -211,10 +231,13 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
         )
         if entry is not None:
             pre = json.loads((ddir / "pre-dispatch.json").read_text(encoding="utf-8"))
+            recheck = pre.get("hash_recheck_ok", False)
             check(
                 f"garak.hash-recheck-before-dispatch.{dispatch['scenario_id']}",
-                pre.get("hash_recheck_ok", False),
-                "replay entry hash changed between review and dispatch",
+                recheck,
+                "replay entry hash rechecked before dispatch"
+                if recheck
+                else "replay entry hash changed between review and dispatch",
             )
 
     # -- review bindings ------------------------------------------------------
@@ -236,7 +259,9 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
             check(
                 f"review.bindings-current.{request_path.stem}",
                 not stale,
-                f"material changed since review: {stale}",
+                "all reviewed material hashes current"
+                if not stale
+                else f"material changed since review: {stale}",
             )
 
     # -- secrets must not appear in evidence ---------------------------------
@@ -262,7 +287,13 @@ def verify_run(run: RunDir, config: RunConfig | None = None) -> dict:
                     if value and len(value) >= 8 and value in text:
                         leaks.append(f"{rel} contains the {role} API key value")
                         break
-        check("evidence.no-secret-values", not leaks, "; ".join(leaks[:5]))
+        check(
+            "evidence.no-secret-values",
+            not leaks,
+            "no configured secret values found in retained evidence"
+            if not leaks
+            else "; ".join(leaks[:5]),
+        )
 
     report = {
         "ok": not problems,

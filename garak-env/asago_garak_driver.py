@@ -146,6 +146,9 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except BaseException as exc:  # noqa: BLE001 - the runner needs the reason
+        import traceback
+
+        traceback.print_exc()
         print(
             json.dumps({"driver_error": f"{type(exc).__name__}: {exc}"}),
             file=sys.stderr,
