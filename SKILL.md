@@ -52,6 +52,16 @@ user prepare inputs, present reviews, explain progress and link results.
 This is a guided process, not a batch job. **Never run silently.** Three
 rules, applied throughout:
 
+**0. Ask with the question tool, not the chat.** When the harness
+provides an interactive question tool (Claude Code: `AskUserQuestion`),
+use it for every discrete decision: built-vs-proposed, review approvals,
+precedence choices, scope and model selections. Shape questions to the
+tool: one short question, 2–4 options with concise labels, and put the
+*why* into each option's 1–2 sentence description instead of a chat
+briefing. Where no such tool exists, ask in chat — **one short question at
+a time** with lettered options, never a multi-paragraph blob. Explanations
+come after the choice, when they are relevant, or when the user asks.
+
 **1. Open with the plan.** The moment a user starts an Asago run (after
 intake questions are answered and the configuration exists), tell them the
 whole journey before running anything:
@@ -151,35 +161,26 @@ approval from elapsed time or stage progression.
 
 ### 1. Intake
 
-**Ask this first, before anything else** (adapt the wording; keep the
-clarity about why you are asking and what happens with the answer):
+**Ask this first, before anything else**, with the question tool
+(fallback: one short chat question with options a)/b)):
 
-> Before we set anything up, one question about where your system is today:
->
-> **Have you already built the agent you want to assess, or are you
-> proposing a design you haven't built yet?**
->
-> Both are perfectly good uses of Asago — the answer decides how far we can
-> go and what I'll ask you for:
->
-> - **If it's built**, we can run the whole chain: your policy becomes a
->   risk landscape, the risks become attack scenarios, and those become
->   actual tests run against your system's endpoint. I'll need model
->   connections for every stage, including the system under test and a
->   judge.
-> - **If it's a proposed design**, we run policy → risks → scenarios and
->   stop there. You get the threat picture for your design — the attacks
->   your agent would face if built as described — which is exactly what you
->   want before building it. Nothing is evaluated (there's nothing to
->   attack yet), and you won't need a target endpoint or a judge, only the
->   two generation-model connections.
->
-> Your answer is recorded in the run (`run.subject: built` or `proposed`)
-> and shapes the whole pipeline: how far it goes, and which credentials
-> I'll ask for.
+- **Question:** "Have you already built the agent you want to assess?"
+- **Option "It's built":** "We can run the whole chain — policy → risks →
+  scenarios → tests against your system's endpoint. I'll need model
+  connections for every stage, including the target and a judge."
+- **Option "It's a proposed design":** "We run policy → risks → scenarios
+  and stop there: you get the threat picture for your design. No
+  evaluation (nothing to attack yet); no target or judge credentials
+  needed."
 
-Then gather from the user (see `references/review-guide.md` for the full
-checklist and question phrasing):
+The answer is recorded in the run (`run.subject: built` or `proposed`) and
+shapes the pipeline and the credentials you'll ask for. Don't explain more
+than the option descriptions — details come when they matter.
+
+Then gather the rest **one short question at a time** (never a briefing),
+using the question tool where a choice fits and short chat questions for
+free-text like file paths. `references/review-guide.md` has the full
+checklist and question phrasing:
 
 - **Policy documents** (`.md`, `.txt`, `.pdf`, `.docx`, `.html`, …).
 - **System context**: use-case description; capability profile;
@@ -278,14 +279,26 @@ Notes:
 
 ### 3. Presenting reviews
 
-Present grouped summaries with a representative sample and links to the
-full inventories (paths are in the request/summary JSON). Bind approval to
-the whole batch: say what was sampled versus individually inspected. The
-request files contain the exact question, material hashes and the data-flow
-table. The test-plan review covers the **exact replay entries** Garak will
-receive — messages, derived tool schemas (test assumptions, not confirmed
-deployed interfaces), judge criteria, target/judge models, and the native
-retry limitations.
+Show a **compact** summary in chat (a few lines: what's being approved,
+the counts, the one or two things that need attention, and where the full
+detail lives), then ask for the decision **with the question tool**
+(fallback: one short chat question). For example, for the test plan:
+
+- **Question:** "Approve the test plan for evaluation?"
+- **Option "Approve":** "The exact replay batch (shown in the linked
+  entries) is sent to your target: <N> conversation(s), judge criteria,
+  models <target>/<judge>."
+- **Option "Walk me through it first":** "I'll show each replay entry —
+  messages, attack turn, derived tool schemas, judge criteria — before
+  you decide."
+- **Option "Reject":** "Nothing is sent. Tell me what to change."
+
+Bind approval to the whole batch and say what was sampled versus
+individually inspected. The full detail is in the request files (exact
+question, material hashes, data-flow table, and for the test plan the
+**exact replay entries** — messages, derived tool schemas as test
+assumptions, judge criteria, target/judge models, native retry
+limitations). Never paste whole request files into chat; link or summarize.
 
 ### 4. Explaining results
 
