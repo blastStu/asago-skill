@@ -2,7 +2,8 @@
 
 Every command below is real: the early-stage outputs were captured from a
 fresh run of the synthetic example, and the model-calling stage outputs come
-from the live run in `runs/live-smoke` (trimmed for readability — the JSON
+from the completed Phase 1 live run (now archived at
+`an archived run outside the repository`; trimmed for readability — the JSON
 you see is what the runner prints, fields elided with `…`). No agent is
 involved anywhere in this session.
 

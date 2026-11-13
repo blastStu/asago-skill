@@ -159,7 +159,7 @@ td strong { color: var(--text); }
         </div>
         <div class="callout">
           <p><strong>12–13 November 2026</strong> · built and run by Claude Code in the
-          asago-skill repository · evidence in <code>runs/live-smoke/</code></p>
+          asago-skill repository · evidence archived at <code>an archived run outside the repository/</code></p>
         </div>
       </div>
     </div>
@@ -273,7 +273,7 @@ td strong { color: var(--text); }
       <tr><td><strong>references/</strong></td><td>Setup guide, the compatibility record (every tested fact and limitation), review guide, CLI contract.</td></tr>
       <tr><td><strong>examples/</strong></td><td>A labelled synthetic policy + system context + secret-free config template, so anyone can run a first assessment without real material.</td></tr>
       <tr><td><strong>tests/</strong></td><td>69 offline tests, including a stub-server Garak failure matrix and an OTLP telemetry demonstration.</td></tr>
-      <tr><td><strong>runs/</strong> (gitignored)</td><td>Run output — the evidence trees. Live proof: <code>runs/live-smoke/</code>.</td></tr>
+      <tr><td><strong>runs/</strong> (gitignored)</td><td>Run output — the evidence trees. The Phase 1 live run is archived outside the repo at <code>an archived run outside the repository/</code> so skill tests start clean.</td></tr>
     </table>
   </div>
 </div>
@@ -439,7 +439,7 @@ td strong { color: var(--text); }
     <div class="cols">
       <div class="col" style="flex:1.2;">
         <div class="tree">
-<span class="hl">runs/live-smoke/</span>
+<span class="hl">…archive/runs/live-smoke/</span>
 ├── run.json            <span class="ann">← identities, config snapshot, stage/attempt records</span>
 ├── inventory.json      <span class="ann">← flat SHA-256 inventory of every retained file</span>
 ├── decisions.jsonl     <span class="ann">← append-only journal: reviews, deviations, dispositions</span>
@@ -534,7 +534,7 @@ td strong { color: var(--text); }
 <div class="slide">
   <div class="slide-header"><span>04 · The Live Run</span><span class="slide-number">14</span></div>
   <div class="slide-body">
-    <h2 class="slide-title">runs/live-smoke: the funnel</h2>
+    <h2 class="slide-title">The live run: the funnel</h2>
     <p class="subtitle">Separate denominators at every step — there is no single
     "coverage percentage" because the lineage is many-to-many.</p>
     <div class="pipeline">
@@ -684,7 +684,7 @@ td strong { color: var(--text); }
             <code>references/review-guide.md</code></li>
             <li><code>design-docs/implementation-plan.md</code> — the governing
             specification and phased plan</li>
-            <li><code>runs/live-smoke/</code> — the live evidence tree
+            <li><code>an archived run outside the repository/</code> — the live evidence tree (archived)
             (reports/index.html is the human view)</li>
           </ul>
         </div>

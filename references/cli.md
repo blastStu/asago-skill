@@ -106,7 +106,7 @@ def stage(*args):
                           capture_output=True, text=True)
     return proc.returncode, json.loads(proc.stdout.strip().splitlines()[-1])
 
-code, outcome = stage("status", "runs/live-smoke")
+code, outcome = stage("status", "runs/<your-run>")
 ```
 
 **Pattern 2 — import the package directly (for analysis and custom
@@ -123,7 +123,7 @@ from asago_runner.replay import derive_transport
 from asago_runner.reporting import build_summary
 from asago_runner.verify import verify_run
 
-run = RunDir("runs/live-smoke")
+run = RunDir("runs/<your-run>")
 cfg = RunConfig.load(run.path / "originals" / "run-config.yaml",
                      path_map=run.manifest().get("originals_map"))
 receipts = json.loads((run.path / run.manifest()["flow"]
