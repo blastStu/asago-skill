@@ -1,7 +1,7 @@
 [project]
 name = "asago-runner"
 version = "0.1.0"
-description = "Policy-to-Garak orchestration runner for the Asago component chain"
+description = "Runner for the Asago pipeline: policy documents to evaluated results (evaluation currently through Garak)"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"

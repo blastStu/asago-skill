@@ -1,4 +1,9 @@
-"""Asago runner: policy-to-Garak orchestration for the Asago component chain.
+"""Asago runner: orchestration for the Asago pipeline.
+
+The runner executes the Asago component chain from policy documents to
+evaluated results. The current evaluation endpoint is Garak against an
+OpenAI-compatible Chat Completions endpoint; the stage architecture is
+evaluation-agnostic so later phases can add evaluators.
 
 The runner invokes the real Asago components (Policy Mapper, Scenario
 Generator, Artifact Generator) and Garak as isolated subprocesses, retains

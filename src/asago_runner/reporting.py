@@ -271,7 +271,7 @@ def render_html(run: RunDir, summary: dict) -> Path:
 </style>
 </head>
 <body>
-<h1>Asago policy-to-Garak run overview</h1>
+<h1>Asago run overview</h1>
 <p class="note">Run <code>{e(str(summary.get('run_id')))}</code> · label
 <code>{e(str(summary.get('label')))}</code> · generated {e(str(summary.get('generated_at')))}</p>
 <p class="note">This overview is a derived convenience view. Native component

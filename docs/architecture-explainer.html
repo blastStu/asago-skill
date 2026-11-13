@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Asago Skill — Architecture Explainer</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --secondary: #7c3aed;
+  --accent: #f59e0b;
+  --dark: #0f172a;
+  --card: #1e293b;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --green: #10b981;
+  --red: #dc2626;
+  --border: #334155;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0f1e; color: var(--text); }
+.slide {
+  width: 1280px; height: 720px; margin: 2rem auto;
+  background: var(--dark); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.slide-header {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  padding: 0.6rem 2.5rem; font-size: 0.75rem; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  display: flex; justify-content: space-between;
+}
+.slide-body { flex: 1; padding: 2.2rem 2.5rem 1.5rem; display: flex; flex-direction: column; overflow: hidden; }
+h1.slide-title {
+  font-size: 3rem; font-weight: 800;
+  background: linear-gradient(135deg, var(--primary), var(--secondary), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+h2.slide-title { font-size: 2rem; font-weight: 700; color: var(--text); margin-bottom: 0.6rem; }
+.subtitle { font-size: 1.15rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.5; }
+.slide.divider {
+  background: linear-gradient(135deg, #0d1b3e 0%, #1a0533 100%);
+  justify-content: center; align-items: center; text-align: center;
+}
+.slide.divider .section-number {
+  font-size: 5rem; font-weight: 900; opacity: 0.08;
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); font-family: monospace;
+}
+.slide.divider h2 {
+  font-size: 2.8rem; font-weight: 800;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  margin-bottom: 0.6rem; z-index: 1;
+}
+.slide.divider p { color: var(--muted); font-size: 1.1rem; max-width: 700px; z-index: 1; line-height: 1.6; }
+.cols { display: flex; gap: 1.5rem; flex: 1; }
+.col  { flex: 1; }
+ul.points { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+ul.points li {
+  padding: 0.55rem 0.8rem 0.55rem 1rem;
+  background: var(--card); border-left: 3px solid var(--primary);
+  border-radius: 0 6px 6px 0; font-size: 0.88rem; line-height: 1.4; color: var(--muted);
+}
+ul.points li strong { color: var(--text); }
+ul.points li.green  { border-color: var(--green); }
+ul.points li.red    { border-color: var(--red); }
+ul.points li.amber  { border-color: var(--accent); }
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.7rem;
+}
+.card h3 { font-size: 0.9rem; font-weight: 700; color: var(--primary); margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.card p, .card li { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+.card ul { list-style: disc; padding-left: 1.1rem; }
+.callout {
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.12));
+  border: 2px solid var(--primary); border-radius: 8px; padding: 0.9rem 1.2rem; margin-bottom: 0.8rem;
+}
+.callout p { font-size: 0.85rem; color: var(--text); line-height: 1.55; }
+.callout.green { border-color: var(--green); background: rgba(16,185,129,0.08); }
+.callout.amber { border-color: var(--accent); background: rgba(245,158,11,0.08); }
+.badge {
+  display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.badge.green  { background: rgba(16,185,129,0.15); color: var(--green);  border: 1px solid var(--green); }
+.badge.red    { background: rgba(220,38,38,0.15);  color: var(--red);    border: 1px solid var(--red); }
+.badge.amber  { background: rgba(245,158,11,0.15); color: var(--accent); border: 1px solid var(--accent); }
+.badge.blue   { background: rgba(37,99,235,0.15);  color: #60a5fa;       border: 1px solid #60a5fa; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 0.5rem; }
+th    { background: var(--primary); color: white; padding: 0.5rem 0.8rem; text-align: left; font-weight: 600; }
+td    { padding: 0.45rem 0.8rem; color: var(--muted); border-bottom: 1px solid var(--border); }
+tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+td strong { color: var(--text); }
+/* pipeline diagram */
+.pipeline { display: flex; align-items: stretch; gap: 0.4rem; margin: 0.8rem 0; }
+.stage-box {
+  flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.6rem 0.5rem; text-align: center; display: flex; flex-direction: column; justify-content: center;
+}
+.stage-box .cmd { font-family: monospace; font-size: 0.78rem; color: var(--text); font-weight: 700; }
+.stage-box .desc { font-size: 0.66rem; color: var(--muted); margin-top: 0.25rem; line-height: 1.3; }
+.stage-box.gate { border-color: var(--accent); background: rgba(245,158,11,0.08); }
+.stage-box.review { border-color: var(--secondary); background: rgba(124,58,237,0.10); }
+.arrow { display: flex; align-items: center; color: var(--muted); font-size: 1rem; }
+/* evidence tree */
+.tree { font-family: monospace; font-size: 0.78rem; color: var(--muted); line-height: 1.7; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.4rem; }
+.tree .hl { color: var(--text); font-weight: 700; }
+.tree .ann { color: var(--accent); }
+@media print {
+  body { background: white; }
+  .slide {
+    width: 100%; height: auto; min-height: 100vh;
+    margin: 0; border-radius: 0; border: none; box-shadow: none;
+    page-break-after: always; break-after: page;
+  }
+  .slide:last-child { page-break-after: avoid; break-after: avoid; }
+  h1.slide-title { background: none; -webkit-text-fill-color: #93c5fd; color: #93c5fd; }
+  .slide.divider h2 { background: none; -webkit-text-fill-color: #60a5fa; color: #60a5fa; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============ 1. TITLE ============ -->
+<div class="slide">
+  <div class="slide-header"><span>The Asago Skill</span><span class="slide-number">1</span></div>
+  <div class="slide-body">
+    <h1 class="slide-title">We run Asago.</h1>
+    <p class="subtitle" style="font-size:1.3rem; max-width: 900px;">
+      An architecture explainer for the <strong>asago-skill</strong> repository: a portable
+      agent skill backed by a deterministic Python runner that takes AI policy documents
+      through the real Asago components to evaluated, auditable results.
+    </p>
+    <div class="cols" style="flex:0 1 auto;">
+      <div class="col">
+        <div class="card">
+          <h3>What this deck covers</h3>
+          <ul>
+            <li>What was actually built (and what was deliberately not built)</li>
+            <li>The core architecture: skill, runner, stages, evidence, reviews</li>
+            <li>The live end-to-end run and its results</li>
+            <li>Model contracts discovered the hard way</li>
+            <li>What Phase 2 adds</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <h3>Status badges</h3>
+          <p>
+            <span class="badge green">Live run complete</span>
+            <span class="badge green">verify-run 17/17</span>
+            <span class="badge green">69/69 offline tests</span><br><br>
+            <span class="badge blue">Phase 1 delivered</span>
+            <span class="badge amber">OSCAL → Phase 2</span>
+            <span class="badge amber">Garak = current evaluator</span>
+          </p>
+        </div>
+        <div class="callout">
+          <p><strong>12–13 November 2026</strong> · built and run by Claude Code in the
+          asago-skill repository · evidence in <code>runs/live-smoke/</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2. ABOUT ============ -->
+<div class="slide">
+  <div class="slide-header"><span>The Asago Skill · Orientation</span><span class="slide-number">2</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">About this deck</h2>
+    <p class="subtitle">Five sections, roughly fifteen minutes of reading. Everything here
+    reflects what exists in the repository today — nothing aspirational.</p>
+    <div class="cols">
+      <div class="col">
+        <div class="card"><h3>01 · The problem &amp; the product</h3>
+        <p>Why this exists: Asago's Python libraries were run by hand. The skill makes
+        "run Asago on my policy" a guided, gated, auditable operation.</p></div>
+        <div class="card"><h3>02 · Core architecture</h3>
+        <p>Skill + runner + two locked environments; the stage pipeline; how components
+        are invoked without ever editing them.</p></div>
+        <div class="card"><h3>03 · Evidence, reviews &amp; telemetry</h3>
+        <p>The durable evidence tree, the three human review gates, and why operational
+        telemetry is strictly separate from audit evidence.</p></div>
+      </div>
+      <div class="col">
+        <div class="card"><h3>04 · The live run</h3>
+        <p>The first real policy-to-result run on the synthetic ExampleCorp policy:
+        numbers, verdict, deviations, and what the evidence shows.</p></div>
+        <div class="card"><h3>05 · What's next</h3>
+        <p>Phase 2: OSCAL export, richer review and recovery, broader observability —
+        and why those were deliberately kept out of Phase 1.</p></div>
+        <div class="callout green"><p><strong>One thing to remember:</strong> the runner
+        orchestrates real components and records what happened. It never invents
+        analysis, never edits Asago source, and never marks an incomplete stage as
+        success.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3. DIVIDER 01 ============ -->
+<div class="slide divider">
+  <div class="section-number">01</div>
+  <h2>The problem &amp; the product</h2>
+  <p>Asago connects AI policies to evidence about system behaviour. Its components
+  existed as libraries you ran by hand — this skill turns them into a guided,
+  reviewable, auditable operation anyone can run.</p>
+</div>
+
+<!-- ============ 4. WHAT ASAGO IS ============ -->
+<div class="slide">
+  <div class="slide-header"><span>01 · Problem &amp; Product</span><span class="slide-number">4</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">What Asago does, and what the skill adds</h2>
+    <p class="subtitle">Asago is the pipeline; the skill is how you operate it.</p>
+    <div class="cols">
+      <div class="col">
+        <div class="card">
+          <h3>The Asago chain (real libraries, pinned commits)</h3>
+          <ul>
+            <li><strong>Policy Mapper</strong> — policy text → taxonomy risks with evidence
+              spans (uses IBM AI Atlas Nexus risk data)</li>
+            <li><strong>Scenario Generator</strong> — risks + your system context →
+              concrete adversarial scenarios, with native admission gates</li>
+            <li><strong>Artifact Generator</strong> — admitted scenarios → validated test
+              artifacts for an evaluation platform</li>
+            <li><strong>An evaluator</strong> — currently Garak, replaying artifacts
+              against an OpenAI-compatible Chat Completions endpoint with an
+              LLM judge</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <h3>What the skill adds around it</h3>
+          <ul>
+            <li><strong>A deterministic runner</strong> (<code>asago-runner</code>) that
+              invokes every component as an isolated subprocess</li>
+            <li><strong>Guided intake</strong>: the agent helps you prepare the inputs the
+              libraries expect (policies, system context, model connections)</li>
+            <li><strong>Human review gates</strong> before the pipeline runs and before
+              anything is sent to a target</li>
+            <li><strong>Durable evidence</strong>: every decision, input, output and
+              failure is retained with hashes</li>
+            <li><strong>Automatic data management</strong>: the IBM Nexus risk data is
+              fetched and verified for you</li>
+          </ul>
+        </div>
+        <div class="callout amber"><p><strong>Boundary:</strong> the runner never replaces
+        component analysis and never edits upstream source. Input adaptations are allowed
+        and recorded; shortcuts are not.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 5. WHAT WAS BUILT ============ -->
+<div class="slide">
+  <div class="slide-header"><span>01 · Problem &amp; Product</span><span class="slide-number">5</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">What's in the repository</h2>
+    <p class="subtitle">A skill (agent instructions) and a runner (Python), plus references,
+    examples and tests. The design docs that specified it live alongside.</p>
+    <table>
+      <tr><th>Path</th><th>What it is</th></tr>
+      <tr><td><strong>SKILL.md</strong></td><td>Portable agent instructions — how any harness (Claude Code today) guides a user through a run. No Claude-specific APIs.</td></tr>
+      <tr><td><strong>pyproject.toml + uv.lock</strong></td><td>The runner environment: <code>asago-runner</code> + the three Asago components + Nexus, all pinned to immutable commits.</td></tr>
+      <tr><td><strong>garak-env/</strong></td><td>A second locked environment for the pinned Garak fork (its dependency constraints conflict with the mapper's).</td></tr>
+      <tr><td><strong>src/asago_runner/</strong></td><td>The runner: CLI, config, evidence, preflight, Nexus cache, intake, replay builder, adapters per component, reporting, telemetry, verification.</td></tr>
+      <tr><td><strong>references/</strong></td><td>Setup guide, the compatibility record (every tested fact and limitation), review guide, CLI contract.</td></tr>
+      <tr><td><strong>examples/</strong></td><td>A labelled synthetic policy + system context + secret-free config template, so anyone can run a first assessment without real material.</td></tr>
+      <tr><td><strong>tests/</strong></td><td>69 offline tests, including a stub-server Garak failure matrix and an OTLP telemetry demonstration.</td></tr>
+      <tr><td><strong>runs/</strong> (gitignored)</td><td>Run output — the evidence trees. Live proof: <code>runs/live-smoke/</code>.</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============ 6. DIVIDER 02 ============ -->
+<div class="slide divider">
+  <div class="section-number">02</div>
+  <h2>Core architecture</h2>
+  <p>A stage-oriented CLI drives real components in isolated subprocesses. Two locked
+  environments, deterministic bookkeeping, and hard rules about what the runner may
+  and may not do.</p>
+</div>
+
+<!-- ============ 7. PIPELINE ============ -->
+<div class="slide">
+  <div class="slide-header"><span>02 · Core Architecture</span><span class="slide-number">7</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">The stage pipeline</h2>
+    <p class="subtitle">Each stage is one CLI command. Exit codes make failure
+    unambiguous: 0 completed · 4 completed-with-gaps · 2 needs-review · 3 blocked · 1 failed.</p>
+    <div class="pipeline">
+      <div class="stage-box"><div class="cmd">new-run</div><div class="desc">create run dir, snapshot config, copy originals</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box review"><div class="cmd">preflight</div><div class="desc">LLM-free readiness; prepares input-readiness review</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">intake</div><div class="desc">native parse receipts; conflict review if multi-policy</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">map</div><div class="desc">Policy Mapper CLI subprocess</div></div>
+    </div>
+    <div class="pipeline">
+      <div class="stage-box"><div class="cmd">scenarios</div><div class="desc">projection preflight + Scenario Generator</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">artifacts</div><div class="desc">eligibility gate + Artifact Generator + replay entries</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box review"><div class="cmd">replay-review</div><div class="desc">binds the exact replay batch for approval</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box gate"><div class="cmd">evaluate</div><div class="desc">Garak: one artifact per subprocess, parent deadline</div></div>
+    </div>
+    <div class="pipeline">
+      <div class="stage-box"><div class="cmd">report</div><div class="desc">summary.json + offline HTML overview</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">verify-run</div><div class="desc">model-free consistency verification of the evidence</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">status / respond</div><div class="desc">inspect state; record review answers</div></div>
+    </div>
+    <div class="callout"><p><strong>Review gates are purple/amber on purpose:</strong> the
+    runner stops and persists a request file; nothing proceeds until a human answers.
+    Approval binds to content hashes — change the material and the approval is stale.</p></div>
+  </div>
+</div>
+
+<!-- ============ 8. SUBPROCESS ISOLATION ============ -->
+<div class="slide">
+  <div class="slide-header"><span>02 · Core Architecture</span><span class="slide-number">8</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">How components are invoked</h2>
+    <p class="subtitle">Real CLIs, isolated subprocesses, no monkeypatching — the hard
+    rules that keep the orchestration honest.</p>
+    <div class="cols">
+      <div class="col">
+        <ul class="points">
+          <li><strong>Argument arrays, not shells</strong> — every component runs via an
+          explicit argv with absolute paths into its locked environment.</li>
+          <li><strong>Environment allowlist</strong> — a child sees platform basics plus
+          only the variables its stage needs. Stray provider keys cannot leak in or
+          reroute a role; the Artifact Generator's <code>.env</code> auto-discovery finds
+          nothing.</li>
+          <li><strong>Secrets travel by env only</strong> — never in argv (visible to
+          <code>ps</code>), never in evidence; captured output is redacted against the
+          secret values before it is written.</li>
+          <li><strong>Parent-enforced deadlines</strong> — a recorded wall-clock deadline,
+          process-group kill with bounded grace; the dispatch receipt is written
+          <em>before</em> the process starts, so a crash can't erase the attempt.</li>
+        </ul>
+      </div>
+      <div class="col">
+        <div class="card">
+          <h3>Two locked environments</h3>
+          <p><strong>.venv</strong> — runner + Policy Mapper + Scenario Generator +
+          Artifact Generator + AI Atlas Nexus (pinned via a uv override, because the
+          mapper declares a floating <code>@main</code>).</p>
+          <p><strong>garak-env/</strong> — the pinned Garak fork
+          (<code>trustyai-explainability/garak</code> PR #11). Its dependency constraints
+          conflict with the mapper's, so the environments exchange files only.</p>
+        </div>
+        <div class="card">
+          <h3>Runner-managed Nexus cache</h3>
+          <p>The mapper needs a local IBM AI Atlas Nexus data clone matching the installed
+          library revision. The runner resolves the installed commit from
+          <code>direct_url.json</code>, fetches the data at exactly that commit into
+          <code>.cache/nexus/&lt;commit&gt;/</code>, verifies every file hash against a
+          manifest, cross-checks the installed package's bundled data, and exercises the
+          native loader. Users never maintain a clone.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 9. THE SEAM ============ -->
+<div class="slide">
+  <div class="slide-header"><span>02 · Core Architecture</span><span class="slide-number">9</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">The hard part: the Artifact Generator → evaluator seam</h2>
+    <p class="subtitle">The adversarial review found the upstream defaults silently
+    downgrade tests here. The runner's eligibility gate is the fix.</p>
+    <div class="cols">
+      <div class="col">
+        <div class="card">
+          <h3>Upstream behaviour (pinned code, verified)</h3>
+          <ul>
+            <li>Artifacts carry <strong>no structured tool schema</strong> — tools exist
+            only as prose lines on the system turn</li>
+            <li>Unknown entry-point zones silently classify as a
+            <strong>direct user-turn attack</strong> — an indirect test can become a
+            direct one with "full coverage" labels</li>
+            <li>A judge HTTP 400 <strong>crashes</strong> the evaluator; internal retries
+            are unbounded</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <h3>Runner countermeasures (all tested)</h3>
+          <ul>
+            <li><strong>Model-free eligibility</strong> before any artifact model call:
+            transport derived from the reviewed profile's structured facts; webhook ≠
+            chat; ambiguous → excluded, never defaulted</li>
+            <li><strong>Tool schemas only from explicit declarations</strong> — declared
+            types map to JSON Schema; untyped parameters get the loosest valid schema;
+            <em>never</em> types guessed from names; undeclared called tool → excluded</li>
+            <li><strong>Immutable replay entries</strong> built before review, hash-bound,
+            rechecked immediately before dispatch</li>
+            <li><strong>One artifact per subprocess</strong> with dispatch receipts;
+            crashes/timeouts/missing detector rows → <code>inconclusive</code>, never a verdict</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="callout amber"><p><strong>Why this matters:</strong> this seam is where a
+    "successful" run could otherwise lie about what was tested. The runner would rather
+    exclude and report than let an unknown surface become a direct attack.</p></div>
+  </div>
+</div>
+
+<!-- ============ 10. DIVIDER 03 ============ -->
+<div class="slide divider">
+  <div class="section-number">03</div>
+  <h2>Evidence, reviews &amp; telemetry</h2>
+  <p>If this process were audited, we must be able to show what we did. Evidence is
+  ordinary files with hashes; reviews are human decisions bound to content; telemetry
+  is operational and optional.</p>
+</div>
+
+<!-- ============ 11. EVIDENCE TREE ============ -->
+<div class="slide">
+  <div class="slide-header"><span>03 · Evidence &amp; Reviews</span><span class="slide-number">11</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">The evidence tree</h2>
+    <p class="subtitle">Every run is a self-contained directory. Writes are atomic; the
+    decision journal is append-only; attempts are recorded before components run, so
+    crashes never erase history.</p>
+    <div class="cols">
+      <div class="col" style="flex:1.2;">
+        <div class="tree">
+<span class="hl">runs/live-smoke/</span>
+├── run.json            <span class="ann">← identities, config snapshot, stage/attempt records</span>
+├── inventory.json      <span class="ann">← flat SHA-256 inventory of every retained file</span>
+├── decisions.jsonl     <span class="ann">← append-only journal: reviews, deviations, dispositions</span>
+├── originals/          <span class="ann">← policies, system context, SSSOM, run config</span>
+├── derived/            <span class="ann">← parse receipts, reconciled inputs, span maps</span>
+├── reviews/            <span class="ann">← requests + responses, hash-bound</span>
+├── preflight/          <span class="ann">← readiness report incl. Nexus verification</span>
+├── stages/
+│   ├── policy-mapper/&lt;attempt&gt;/     <span class="ann">← native extraction + receipts</span>
+│   ├── scenario-generator/&lt;attempt&gt;/ <span class="ann">← native manifest v3, inventory, quarantine</span>
+│   ├── artifact-generator/&lt;attempt&gt;/ <span class="ann">← artifacts, validations, replay entries</span>
+│   └── garak/&lt;attempt&gt;/&lt;dispatch&gt;/   <span class="ann">← conversation, dispatch receipts, native report</span>
+└── reports/            <span class="ann">← summary.json + offline index.html</span>
+        </div>
+      </div>
+      <div class="col">
+        <ul class="points">
+          <li><strong>States stay distinct:</strong> a risk match is not a finding; an
+          admitted scenario is not an executable artifact; <code>skip</code> may coexist
+          with <code>ok=true</code> and stays skipped; inconclusive is not a pass</li>
+          <li><strong>Exclusions are visible:</strong> unsupported taxonomies,
+          quarantined candidates, partial coverage and inconclusive dispatches all carry
+          reasons and links</li>
+          <li><strong>Secrets never appear:</strong> verify-run scans the whole tree for
+          configured key values</li>
+          <li><strong>verify-run</strong> re-derives consistency model-free: admission
+          receipts, parent hashes, dispatch↔attempt correlation, detector results, review
+          bindings — 17 checks on the live run</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 12. REVIEWS + TELEMETRY ============ -->
+<div class="slide">
+  <div class="slide-header"><span>03 · Evidence &amp; Reviews</span><span class="slide-number">12</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">Review gates and telemetry separation</h2>
+    <p class="subtitle">Humans decide at three boundaries; the Collector observes
+    operations but no audit information depends on it.</p>
+    <div class="cols">
+      <div class="col">
+        <div class="card">
+          <h3>Three review gates</h3>
+          <ul>
+            <li><strong>Input readiness</strong> (before the pipeline): documents, system
+            identity, the data-flow table — which provider sees your policy text — scope
+            and models</li>
+            <li><strong>Policy conflict</strong> (multi-document): suspected disagreements
+            presented with actual passages; precedence via verbatim span reconciliation
+            with a machine-checked span map</li>
+            <li><strong>Test plan</strong> (before evaluation): the <em>exact</em> replay
+            batch — messages, derived tool schemas (labelled test assumptions), judge
+            criteria, target/judge models, retry limitations</li>
+          </ul>
+        </div>
+        <div class="callout"><p>Reviews are files: the runner persists a request and
+        returns <code>needs-review</code> — no live waiting. Approval is never inferred
+        from elapsed time, and a material change invalidates it.</p></div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <h3>Telemetry (OpenTelemetry)</h3>
+          <ul>
+            <li>Run/stage/attempt spans via standard OTLP env config — your Collector,
+            your backend; none is provisioned</li>
+            <li>Identifiers, statuses, timings and bounded counts only — <strong>never</strong>
+            prompts, policies, attacks or responses</li>
+            <li>Export failure is a recorded warning; evidence is unaffected</li>
+            <li>Demonstrated against a local test receiver in the test suite</li>
+          </ul>
+        </div>
+        <div class="callout green"><p><strong>The separation is the point:</strong> an
+        auditor needs files, not traces. An operator wants traces, not audit noise.
+        Each gets its own channel, and neither can fake the other.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 13. DIVIDER 04 ============ -->
+<div class="slide divider">
+  <div class="section-number">04</div>
+  <h2>The live run</h2>
+  <p>Policy documents in, judged result out — every component real, every number
+  accounted, every deviation recorded. The synthetic ExampleCorp policy against a
+  gateway-served model.</p>
+</div>
+
+<!-- ============ 14. LIVE RUN FUNNEL ============ -->
+<div class="slide">
+  <div class="slide-header"><span>04 · The Live Run</span><span class="slide-number">14</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">runs/live-smoke: the funnel</h2>
+    <p class="subtitle">Separate denominators at every step — there is no single
+    "coverage percentage" because the lineage is many-to-many.</p>
+    <div class="pipeline">
+      <div class="stage-box"><div class="cmd">140 risks</div><div class="desc">matched by the Policy Mapper across 5 taxonomies; 393 model calls retained as evidence</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">21 risks</div><div class="desc">ibm-risk-atlas — the only taxonomy the Scenario Generator consumes; others recorded as visible gaps</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">1 admitted</div><div class="desc">scenario (3 quarantined, retained); native manifest v3 + admission inventory verified</div></div>
+    </div>
+    <div class="pipeline">
+      <div class="stage-box"><div class="cmd">1 replay entry</div><div class="desc">validated artifact, surface user_turn (direct chat attack — labelled as such); partial coverage recorded (output-oracle limitation)</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box"><div class="cmd">2 dispatches</div><div class="desc">first crashed in the judge (transient empty response) → inconclusive, retained; second succeeded</div></div>
+      <div class="arrow">→</div>
+      <div class="stage-box gate"><div class="cmd">attack_not_demonstrated</div><div class="desc">judge confidence 0/100, detector score 0.0 — the target refused and escalated properly</div></div>
+    </div>
+    <div class="cols" style="margin-top:0.6rem;">
+      <div class="col">
+        <div class="callout"><p><strong>The attack:</strong> a tool-grounded support
+        conversation (order lookup, RAG retrieval) ending in an instruction to save a
+        policy-overriding note to the account. The target (a reasoning-heavy gateway model) refused and called
+        the escalation tool instead — the judge scored success 0.</p></div>
+      </div>
+      <div class="col">
+        <div class="callout amber"><p><strong>Attack rate 0/1 usable evaluations</strong>
+        (1 inconclusive excluded from the denominator) · target = judge = a reasoning-heavy gateway model
+        (shared model — recorded as a lack of independent validation) ·
+        verify-run 17/17.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 15. MODEL CONTRACTS ============ -->
+<div class="slide">
+  <div class="slide-header"><span>04 · The Live Run</span><span class="slide-number">15</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">Model contracts discovered the hard way</h2>
+    <p class="subtitle">The gateway's validators and the components' hardcoded limits
+    constrain which model can run which stage. All found by experiment, all recorded in
+    the compatibility record and decision journal.</p>
+    <table>
+      <tr><th>Stage</th><th>Model used</th><th>Why (measured fact)</th></tr>
+      <tr><td><strong>Mapper</strong></td><td>a fast gateway model</td><td>Completed in ~13 min (393 calls). a reasoning-heavy gateway model rerun hit the 60-min stage deadline near completion — ~4–5× slower; the completed attempt was kept.</td></tr>
+      <tr><td><strong>Scenarios</strong></td><td>a concise gateway model</td><td>a reasoning-heavy gateway model's drafts exceed the component's <em>hardcoded</em> 4096-token caps; a fast gateway model is rejected by the gateway's strict-schema validator (<code>maxProperties</code>); all Gemini models reject the behavior schema. a concise gateway model accepts it and fits (1488 tokens on a maximal probe).</td></tr>
+      <tr><td><strong>Artifacts</strong></td><td>a reasoning-heavy gateway model</td><td>Accepts the generator's hardcoded temperature=0.2 (a fast gateway model and a fast gateway model accept only temperature=1).</td></tr>
+      <tr><td><strong>Target + judge</strong></td><td>a reasoning-heavy gateway model</td><td>Your free-model default; accepts every request shape. Shared target/judge — flagged, not hidden.</td></tr>
+    </table>
+    <div class="callout"><p><strong>Every deviation is a journal record</strong> with the
+    user instruction or measured failure that forced it, the alternatives tried, and the
+    scope affected. Rerunning any single stage on a different model is cheap if you'd
+    prefer another combination.</p></div>
+  </div>
+</div>
+
+<!-- ============ 16. DIVIDER 05 ============ -->
+<div class="slide divider">
+  <div class="section-number">05</div>
+  <h2>What's next</h2>
+  <p>Phase 1 deliberately stopped at a working, honest chain. Phase 2 builds the
+  assessment workflow on top of retained evidence — starting with OSCAL.</p>
+</div>
+
+<!-- ============ 17. PHASE 2 ============ -->
+<div class="slide">
+  <div class="slide-header"><span>05 · What's Next</span><span class="slide-number">17</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">Phase 2 (deliberately deferred)</h2>
+    <p class="subtitle">Phase 1 retained everything Phase 2 needs — that was the design
+    constraint. Nothing has to be re-run to export later.</p>
+    <div class="cols">
+      <div class="col">
+        <div class="card"><h3>OSCAL export (first priority)</h3>
+        <ul>
+          <li>Assessment Plan / SSP / Assessment Results derived from retained evidence</li>
+          <li>Native files stay as linked resources with hashes; the decision journal is
+          detailed source evidence</li>
+          <li>Inconclusive/skipped work stays observations and gaps — never forced into
+          binary findings</li>
+        </ul></div>
+        <div class="card"><h3>Richer review &amp; recovery</h3>
+        <ul>
+          <li>Larger-scale conflict analysis, clause-level precedence, review queues</li>
+          <li>Config fingerprints, dependency-aware invalidation, cross-stage resume</li>
+        </ul></div>
+      </div>
+      <div class="col">
+        <div class="card"><h3>Broader coverage &amp; observability</h3>
+        <ul>
+          <li>More input formats, endpoint configurations, harnesses — tested, then claimed</li>
+          <li>Tool-return live coverage once a reviewed carrier and endpoint support are
+          established (the offline adapter path already works)</li>
+          <li>Client-level model-call instrumentation without source edits</li>
+        </ul></div>
+        <div class="callout amber"><p><strong>Out of scope entirely:</strong> recommenders,
+        mitigation deployment, compliance claims from bounded samples, and any claim of
+        general safety.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 18. TAKEAWAYS ============ -->
+<div class="slide">
+  <div class="slide-header"><span>Closing</span><span class="slide-number">18</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">Key takeaways</h2>
+    <ul class="points">
+      <li class="green"><strong>The chain works, end to end, for real:</strong> policy
+      documents → mapper → scenarios → artifact → Garak → judged result, with the
+      synthetic policy producing <code>attack_not_demonstrated</code> (judge 0/100) and
+      every number accounted.</li>
+      <li><strong>The runner orchestrates; it never analyzes.</strong> Real components at
+      pinned commits, isolated subprocesses, env allowlists, no source edits, no
+      monkeypatching.</li>
+      <li><strong>Evidence is files with hashes; telemetry is optional OTel.</strong> An
+      auditor never needs the Collector; verify-run re-derives consistency model-free
+      (17/17 on the live run).</li>
+      <li><strong>Humans decide at three gates</strong> — input readiness, policy
+      conflicts, and the exact replay batch before anything touches a target. Approvals
+      bind to hashes; changes invalidate them.</li>
+      <li class="amber"><strong>Honesty is structural, not aspirational:</strong>
+      unsupported taxonomies, quarantined scenarios, partial coverage, inconclusive
+      dispatches and shared-model judges are all recorded and surfaced, never smoothed
+      over.</li>
+      <li><strong>Model contracts are a real constraint:</strong> the compatibility
+      record documents which gateway models can run which stage and why — measured, not
+      assumed.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 19. REFERENCES ============ -->
+<div class="slide">
+  <div class="slide-header"><span>Closing</span><span class="slide-number">19</span></div>
+  <div class="slide-body">
+    <h2 class="slide-title">References</h2>
+    <div class="cols">
+      <div class="col">
+        <div class="card"><h3>In this repository</h3>
+          <ul>
+            <li><code>SKILL.md</code> — the agent-facing skill instructions</li>
+            <li><code>README.md</code> — how to use this with Claude Code</li>
+            <li><code>references/compatibility-record.md</code> — every tested fact,
+            pin, deviation and limitation</li>
+            <li><code>references/setup.md</code>, <code>references/cli.md</code>,
+            <code>references/review-guide.md</code></li>
+            <li><code>design-docs/implementation-plan.md</code> — the governing
+            specification and phased plan</li>
+            <li><code>runs/live-smoke/</code> — the live evidence tree
+            (reports/index.html is the human view)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card"><h3>Upstream (all pinned, unmodified)</h3>
+          <ul>
+            <li>asago-policy-mapper @ <code>630c77c</code></li>
+            <li>asago-scenario-generator @ <code>98fba15</code></li>
+            <li>asago-artifact-generator @ <code>8f48194</code></li>
+            <li>IBM ai-atlas-nexus @ <code>c7a5304</code> (uv override pin)</li>
+            <li>trustyai-explainability/garak PR #11 @ <code>06aba1a</code>
+            (open/unmerged at adoption)</li>
+            <li>github.com/asago-ai — the Asago organization</li>
+          </ul>
+        </div>
+        <div class="callout"><p>Built and run 12–13 November 2026 in the
+        <strong>asago-skill</strong> repository. Deck:
+        <code>docs/architecture-explainer.html</code> — open in any browser;
+        Cmd+P → Save as PDF (landscape, margins none) to print.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

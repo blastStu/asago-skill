@@ -1,31 +1,225 @@
-# Asago skill: policy-to-Garak runner
+# Asago skill — run Asago from policy documents to evaluated results
 
-A portable agent skill backed by a Python runner that takes policy documents
-through the real [Asago](https://github.com/asago-ai) components — Policy
-Mapper, Scenario Generator, Artifact Generator — to real
-[Garak](https://github.com/NVIDIA/garak) results against an OpenAI-compatible
-Chat Completions endpoint.
+This repository is a portable agent skill (plus the Python runner behind it)
+that runs [Asago](https://github.com/asago-ai): it takes your AI policy
+documents and system context, passes them through the real Asago components —
+Policy Mapper, Scenario Generator, Artifact Generator — and evaluates the
+result against your AI system's OpenAI-compatible Chat Completions endpoint
+(currently via [Garak](https://github.com/NVIDIA/garak) with an LLM judge).
+Every step is gated by human review, recorded as durable evidence with
+hashes, and summarized in an offline HTML report you can hand to an auditor.
 
-- **SKILL.md** is the agent-facing entry point (portable across harnesses).
-- **`asago-runner`** (this package) is the deterministic orchestrator: it
-  invokes the components as isolated subprocesses, retains native outputs and
-  durable evidence, manages the IBM AI Atlas Nexus data cache, and keeps
-  operational telemetry (OpenTelemetry) separate from audit evidence (files).
-- **references/** holds setup instructions, the compatibility record and the
-  review guide. **examples/** holds a labelled synthetic policy and system
-  context plus a secret-free run configuration template.
+You talk to it in plain language through Claude Code (or run the same stages
+yourself from a terminal — the runner is a plain CLI).
 
-Status, scope and the phased plan live in `design-docs/implementation-plan.md`.
-Phase 1 delivers the working policy-to-Garak chain; OSCAL export is Phase 2.
+- **What it is not:** it does not rewrite Asago's analysis, does not edit any
+  upstream source, and does not claim compliance or safety from a bounded
+  adversarial sample. It orchestrates the real components and records what
+  actually happened, including every exclusion and gap.
+- **Architecture explainer:** open `docs/architecture-explainer.html` in a
+  browser for a slide deck on what's built and how it fits together.
+- **Full specification:** `design-docs/implementation-plan.md` (the phased
+  plan this implements; OSCAL export and richer workflows are Phase 2).
 
-## Quick start
+---
+
+## 1. Prerequisites
+
+| Need | Notes |
+|---|---|
+| A machine with `git` and network access | Components install from pinned GitHub commits; the IBM AI Atlas Nexus risk data is fetched automatically on first preflight |
+| [uv](https://docs.astral.sh/uv/) | Manages both locked environments (Python 3.13 is provisioned by uv — you do not install it yourself) |
+| An OpenAI-compatible Chat Completions endpoint + API key per model role | Five roles: mapper / scenario / artifact generation, target, judge. Roles may share a connection (a shared target+judge is recorded as a lack of independent validation) |
+| Your policy documents | Markdown, text, PDF, DOCX, HTML, PPTX, XLSX |
+| Optional: an OpenTelemetry Collector | Set `OTEL_EXPORTER_OTLP_ENDPOINT` to receive run/stage spans. Without it, telemetry is disabled with a recorded warning and nothing is lost |
+
+You do **not** need your own IBM Nexus data clone, any Asago repository
+checkout, or Garak installed — all of that is managed by the runner.
+
+## 2. Install (once, ~2 commands + one big download)
 
 ```bash
-uv sync --locked                 # runner + Asago component environment
-uv run --project garak-env --locked sync   # separate pinned Garak environment
+git clone <this-repo> && cd asago-skill
+uv sync --locked                            # runner + Asago components
+uv run --project garak-env --locked sync    # pinned Garak environment
 ```
 
-Then follow SKILL.md, or drive the runner directly (see
-`references/cli.md`). Every stage command prints a machine-readable JSON
-outcome and uses distinct exit codes so an incomplete stage can never be
-mistaken for success.
+The first command downloads the component stack (PyTorch-class size —
+expect a few GB and some minutes). Verify afterwards:
+
+```bash
+.venv/bin/asago-runner --help
+.venv/bin/python -m pytest tests/ -q        # 69 offline checks, no model calls
+```
+
+The repository is already registered as a Claude Code project skill
+(`.claude/skills/asago` → the repo root), so opening this repo in Claude
+Code makes the skill available with no further setup.
+
+## 3. Using it with Claude Code
+
+Open this repository in Claude Code (the skill is discovered from
+`.claude/skills/asago/`). Then just talk to it, for example:
+
+> I want to assess my support assistant against our AI policy. The policy is
+> at ~/policies/ai-policy.pdf and I can describe the system.
+
+The skill (see `SKILL.md`) will guide you through everything the libraries
+need, in this order:
+
+1. **Intake questions** — your policy documents; what the system is for and
+   how it works (purpose, entry points, tools, data); who owns it and who
+   confirmed those facts; whether there are concerns you care about that
+   aren't in the policy (any supplement is drafted for your verification).
+   It will also ask which model endpoint plays each role and show you a
+   **data-flow table** — which provider will see your policy text, system
+   facts, attacks and responses — before anything is sent.
+2. **A run configuration** is written (copy `examples/config.example.yaml`
+   as the starting point) naming your files and the environment variables
+   that hold each connection. You export those variables with your real
+   values; secrets never enter files the runner keeps.
+3. **The agent runs the stages** (`new-run`, `preflight`, `intake`, `map`,
+   `scenarios`, `artifacts`), keeping you informed and stopping at review
+   gates.
+4. **You review, the agent records** — the two gates that always need you:
+   - *Input readiness*: approve the documents, destinations, models and
+     scope before the pipeline runs.
+   - *Test plan*: approve the **exact** replay batch that will be sent to
+     your target — the conversation turns, the derived tool schemas
+     (labelled test assumptions, not confirmed deployed interfaces), the
+     judge criteria, and the target/judge models.
+   With multiple policy documents there is also a *policy-conflict* review:
+   the agent shows you suspected disagreements with the actual passages and
+   asks which takes precedence; reconciliation is built from verbatim
+   passages with a machine-checked span map.
+5. **Evaluation and results**: after you approve the test plan, the agent
+   runs Garak (one artifact per subprocess, under a deadline), then opens
+   `reports/index.html` — stage status, counts with honest denominators,
+   each evaluation's verdict with the judge's confidence and reasoning, and
+   every gap and exclusion — and walks you through what the evidence does
+   and does not establish.
+
+Any time you want to check state, ask ("what's the status of the run?") —
+the agent calls `asago-runner status` and reads it back to you.
+
+### A first run without real material
+
+Try the labelled synthetic example before using your own policy (nothing
+real is sent anywhere; the example is flagged as synthetic throughout):
+
+```bash
+export MAPPER_BASE_URL=...  MAPPER_MODEL=...  MAPPER_API_KEY=...   # etc. for all five roles
+cp -r examples /tmp/asago-first-run && cd /tmp/asago-first-run
+```
+
+Then point a copy of `examples/config.example.yaml` at the synthetic policy
+and tell Claude: *"run the asago skill on the synthetic example in
+/tmp/asago-first-run"*. The full flow, including both review gates, takes a
+few minutes plus model time.
+
+## 4. Using it without an agent (plain CLI)
+
+Every stage is a command; every command prints a machine-readable JSON
+outcome as its final stdout line and exits `0` completed · `4`
+completed-with-gaps · `2` needs-review · `3` blocked · `1` failed — an
+incomplete stage can never look like success.
+
+```bash
+RUN=runs/my-assessment
+.venv/bin/asago-runner new-run --config my-config.yaml --run-dir $RUN
+.venv/bin/asago-runner preflight  $RUN        # → needs-review (request file written)
+.venv/bin/asago-runner respond $RUN/reviews/input-readiness.request.json \
+    --decision approve --actor "your-name" --notes "checked the data-flow table"
+.venv/bin/asago-runner preflight  $RUN --response $RUN/reviews/input-readiness.response.json
+.venv/bin/asago-runner intake     $RUN        # + conflict review if multiple policies
+.venv/bin/asago-runner map        $RUN        # Policy Mapper (real CLI subprocess)
+.venv/bin/asago-runner scenarios  $RUN        # projection preflight + generation
+.venv/bin/asago-runner artifacts  $RUN        # eligibility gate + generation + replay entries
+.venv/bin/asago-runner replay-review $RUN     # → needs-review (the exact replay batch)
+.venv/bin/asago-runner respond $RUN/reviews/test-plan.request.json \
+    --decision approve --actor "your-name"
+.venv/bin/asago-runner replay-review $RUN --response $RUN/reviews/test-plan.response.json
+.venv/bin/asago-runner evaluate   $RUN        # Garak, one artifact per subprocess
+.venv/bin/asago-runner report     $RUN        # reports/summary.json + index.html
+.venv/bin/asago-runner verify-run $RUN        # model-free consistency verification
+```
+
+Full command reference: `references/cli.md`. Review semantics (including
+verbatim reconciliation for policy conflicts): `references/review-guide.md`.
+
+## 5. Configuration
+
+A run configuration is a small secret-free YAML file
+(`examples/config.example.yaml` is annotated). It names:
+
+- **Policy documents** and the **system context** files (use-case
+  description, capability profile, qualification facts — the skill helps you
+  author these; the example set shows the exact native formats).
+- **Model connections**, one per role, as *environment variable names* —
+  e.g. `target: {base_url_env: TARGET_BASE_URL, model_env: TARGET_MODEL,
+  api_key_env: TARGET_API_KEY}`. Export those before running stages.
+- **Scope**: selected risk IDs (or all), bounded generation mode, artifact
+  cap, samples per artifact, stage deadline.
+- **Options** for model-specific request shapes (for example
+  `mapper_output_token_parameter: max_completion_tokens` and
+  `mapper_temperature: 1.0` for models that reject the legacy parameters).
+
+The SSSOM risk-to-category mapping ships in `examples/mappings/` (copied
+from the pinned mapper).
+
+## 6. Where results live and how to read them
+
+Everything for one assessment is a self-contained run directory:
+
+```
+runs/<label>/
+  reports/index.html      ← start here: offline overview, escaped content
+  reports/summary.json    ← machine-readable funnel + verdicts
+  decisions.jsonl         ← every human decision and deviation, append-only
+  run.json                ← identities, config snapshot, stage/attempt records
+  inventory.json          ← SHA-256 of every retained file
+  originals/  derived/  reviews/  preflight/  stages/<component>/<attempt>/
+```
+
+Native component outputs are retained untouched inside `stages/` — the
+mapper's extraction with all model-call evidence, the scenario manifest and
+admission inventory (including quarantined candidates), artifact validations
+and replay entries, and each Garak dispatch with its conversation, receipts
+and native JSONL report. `verify-run` re-checks the whole tree's consistency
+(hashes, lineage, dispatch↔attempt correlation, detector results, review
+bindings, no-secret scan) without any model calls.
+
+Honest reading notes, enforced by the runner: a risk match is not a finding;
+an admitted scenario is not an executable artifact; `inconclusive` is not a
+pass; a shared target/judge model is flagged as lacking independent
+validation; a proposed tool call is never claimed as a completed backend
+effect.
+
+## 7. Troubleshooting
+
+| Symptom | Meaning / fix |
+|---|---|
+| Preflight blocked on `nexus.*` | The pinned Nexus data could not be fetched or verified (network, or the pinned commit unavailable). The blocker text carries the remediation — never pick a different revision yourself. |
+| Preflight blocked on `credentials.<role>` | One of that role's env vars is unset. Export it and re-run preflight. |
+| `map` blocked on input-readiness review | Run `preflight --response` with your recorded response (see the command sequence above). |
+| Scenario candidates quarantined with `CompletionLengthError` | The scenario model's structured drafts exceed the component's hardcoded per-call token caps — a model-capacity issue, not a configuration bug. Use a model that fits (see `references/compatibility-record.md` for the measured matrix). |
+| Garak 400 on the behavior schema | The gateway's strict-schema validator rejects the component's schema keywords for that model family — again a model-choice issue; the compatibility record lists what was measured. |
+| Evaluation `inconclusive / evaluator-crashed` | A judge/target failure crashed the native evaluator (known upstream behavior). The dispatch receipts are retained; re-running `evaluate` makes a fresh attempt. |
+| `RunLockError` | Another process holds the run. Locks held by dead processes are reclaimed automatically with a journal record. |
+
+## 8. What's implemented (and what isn't)
+
+**Implemented and demonstrated live** (Phase 1): the full chain above, the
+review gates, the evidence tree, verify-run, the offline HTML report, OTel
+stage telemetry, automatic Nexus data management, and a 69-test offline
+suite including a stub-server evaluator-failure matrix. One harness
+(Claude Code) is demonstrated; the CLI contract for other harnesses is
+documented but untested — nothing claims otherwise.
+
+**Deliberately Phase 2:** OSCAL export (the evidence retains what it needs),
+richer policy reconciliation and review queues, cross-stage resume, broader
+coverage and client-level model-call instrumentation. **Out of scope:**
+recommenders, mitigation deployment, compliance claims.
+
+Every tested fact, pinned commit, recorded deviation and known limitation is
+in `references/compatibility-record.md`.

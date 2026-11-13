@@ -201,7 +201,7 @@ class TestReportingAndTelemetry:
         code, out, _, _ = _run("report", str(run_dir), env_extra=env)
         assert code == 0
         html = (run_dir / "reports" / "index.html").read_text()
-        assert "Asago policy-to-Garak run overview" in html
+        assert "Asago run overview" in html
         # Untrusted content would be escaped if present; the page itself
         # contains no scripts and no external resources.
         assert "<script" not in html

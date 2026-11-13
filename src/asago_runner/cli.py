@@ -48,7 +48,7 @@ from .telemetry import init_telemetry, stage_span
 
 app = typer.Typer(
     name="asago-runner",
-    help="Policy-to-Garak orchestration for the Asago component chain.",
+    help="Run the Asago pipeline: policy documents to evaluated results.",
     no_args_is_help=True,
     add_completion=False,
 )

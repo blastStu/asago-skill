@@ -1,9 +1,9 @@
 ---
-name: asago-policy-to-garak
-description: Orchestrate the Asago policy-to-Garak workflow — take a user's AI policy documents and system context through the real Policy Mapper, Scenario Generator and Artifact Generator to real Garak results against an OpenAI-compatible Chat Completions endpoint, with review gates, durable evidence and an offline HTML overview. Use when the user wants to turn AI policies into adversarial test results, run the Asago pipeline, or assess an AI assistant against its policy.
+name: asago
+description: Run Asago — take a user's AI policy documents and system context through the real Policy Mapper, Scenario Generator and Artifact Generator to evaluated results (currently Garak against an OpenAI-compatible Chat Completions endpoint), with review gates, durable evidence and an offline HTML overview. Use when the user wants to run Asago, run the Asago pipeline, turn AI policies into adversarial test results, or assess an AI assistant against its policy.
 ---
 
-# Asago policy-to-Garak skill
+# Asago skill
 
 You orchestrate a deterministic Python runner that invokes the real Asago
 components. **Never replace component analysis with your own**: no
@@ -150,8 +150,10 @@ claim untested harness support.
 
 ## Scope boundaries
 
-Phase 1 ends at Garak results plus the offline HTML overview. OSCAL export,
-richer reconciliation, resume/recovery and broader coverage are Phase 2.
+The skill is **Asago**: it runs the Asago pipeline end to end. The current
+evaluation endpoint is Garak (plus the offline HTML overview); the runner's
+stage architecture is evaluation-agnostic, and later phases add OSCAL
+export, richer reconciliation, resume/recovery and broader coverage.
 Recommenders, mitigation deployment and compliance claims are out of scope.
 Do not claim general policy compliance or system safety from a bounded
 adversarial sample.
