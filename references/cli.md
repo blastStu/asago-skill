@@ -88,3 +88,60 @@ The runner is a plain CLI. A headless caller can drive the same flow: run
 the stage commands, parse the final JSON line and exit code, write response
 files. No harness-specific API is required. Only one harness (Claude Code)
 has been demonstrated; do not claim others as tested.
+
+## Programmatic use from Python
+
+Two supported patterns, both without any agent:
+
+**Pattern 1 — drive the CLI from Python (recommended for full runs).** The
+CLI is the orchestration layer (gate sequencing, flow-state transitions),
+so invoking it and parsing the final JSON line gives you identical
+behaviour to the skill:
+
+```python
+import json, subprocess
+
+def stage(*args):
+    proc = subprocess.run([".venv/bin/asago-runner", *args],
+                          capture_output=True, text=True)
+    return proc.returncode, json.loads(proc.stdout.strip().splitlines()[-1])
+
+code, outcome = stage("status", "runs/live-smoke")
+```
+
+**Pattern 2 — import the package directly (for analysis and custom
+flows).** Every module is importable and the test suite drives them this
+way. `RunDir` paths stored in `run.json` are run-relative — resolve them
+against `run.path`:
+
+```python
+import json, yaml
+from pathlib import Path
+from asago_runner.config import RunConfig
+from asago_runner.evidence import RunDir
+from asago_runner.replay import derive_transport
+from asago_runner.reporting import build_summary
+from asago_runner.verify import verify_run
+
+run = RunDir("runs/live-smoke")
+cfg = RunConfig.load(run.path / "originals" / "run-config.yaml",
+                     path_map=run.manifest().get("originals_map"))
+receipts = json.loads((run.path / run.manifest()["flow"]
+                       ["scenario_handoff"]["receipts"]).read_text())
+eligibility = derive_transport(yaml.safe_load(Path(receipts[0]["yaml"]).read_text()))
+summary = build_summary(run)          # reports/summary.json as a dict
+report = verify_run(run, cfg)         # model-free verification
+```
+
+Useful entry points: `evidence.RunDir` (manifest, journal, inventory,
+locking), `config.RunConfig` (sanitized snapshots, data-flow tables),
+`preflight.run_preflight`, `intake.parse_receipts` /
+`intake.build_reconciled_input`, `adapters.mapper.run_mapper`,
+`adapters.scenarios.*`, `adapters.artifacts.*`, `replay.derive_transport`
+and `replay.build_replay_entry`, `adapters.garak_eval.evaluate_entry`,
+`reporting.build_summary` / `render_html`, `verify.verify_run`.
+
+**Scope note:** stage orchestration (which stage runs next, review-gate
+handling) lives in the CLI command layer. A first-class in-process Python
+API for whole-run orchestration is a deliberate Phase 2 item (headless
+integration); Pattern 1 covers that need today with identical semantics.
