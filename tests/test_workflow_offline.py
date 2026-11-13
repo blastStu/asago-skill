@@ -385,3 +385,97 @@ class TestRunIsolation:
         assert "effective_inputs" in j.loads(
             (Path(run_b) / "run.json").read_text()
         )["flow"]
+
+
+class TestOptionalSystemInputs:
+    """Profile and qualification facts are optional user inputs."""
+
+    def _minimal_config(self, tmp_path: Path) -> Path:
+        (tmp_path / "policy").mkdir(exist_ok=True)
+        (tmp_path / "policy" / "p.md").write_text(POLICY_A)
+        (tmp_path / "system").mkdir(exist_ok=True)
+        (tmp_path / "system" / "use-case.md").write_text("# Use case\nA chat assistant.\n")
+        (tmp_path / "mappings").mkdir(exist_ok=True)
+        (tmp_path / "mappings" / "m.tsv").write_text(
+            "#c\nsubject_id\tsubject_source\tpredicate_id\tobject_id\tobject_source\tmapping_justification\n"
+            "atlas-hallucination\tibm-risk-atlas\tskos:exactMatch\towasp-llm09\towasp-llm\tsemapv:ManualMappingCuration\n"
+        )
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text(
+            """schema_version: 1
+run:
+  label: minimal
+policy:
+  documents:
+    - path: policy/p.md
+system:
+  use_case_file: system/use-case.md
+  identity:
+    system_name: test
+sssom:
+  path: mappings/m.tsv
+connections:
+  mapper_llm: {base_url_env: A, model_env: B, api_key_env: C}
+  scenario_llm: {base_url_env: A, model_env: B, api_key_env: C}
+  artifact_llm: {base_url_env: A, model_env: B, api_key_env: C}
+  target: {base_url_env: T, model_env: U, api_key_env: V}
+  judge: {base_url_env: T, model_env: U, api_key_env: V}
+"""
+        )
+        return cfg
+
+    def test_config_without_profile_or_facts_is_valid(self, tmp_path):
+        from asago_runner.config import RunConfig
+
+        cfg = RunConfig.load(self._minimal_config(tmp_path))
+        assert cfg.raw["system"].get("profile_file") is None
+
+    def test_preflight_notes_inference_when_profile_absent(self, tmp_path):
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(self._minimal_config(tmp_path)),
+             "--run-dir", str(run_dir), env_extra=env)
+        code, out, _, _ = _run("preflight", str(run_dir), env_extra=env)
+        assert code == 2  # needs_review, not blocked on schema checks
+        report = json.loads(
+            (run_dir / "preflight" / "preflight.json").read_text()
+        )
+        checks = {c["check"]: c for c in report["checks"]}
+        assert checks["scenario.profile-optional-absent"]["ok"] is True
+        assert "Stage-1 inference" in checks["scenario.profile-optional-absent"]["detail"]
+        assert checks["scenario.facts-optional-absent"]["ok"] is True
+
+    def test_use_case_alone_still_required(self, tmp_path):
+        from asago_runner.config import ConfigError, RunConfig
+
+        cfg_path = self._minimal_config(tmp_path)
+        text = cfg_path.read_text().replace(
+            "system:\n  use_case_file: system/use-case.md", "system:\n"
+        )
+        cfg_path.write_text(text)
+        with pytest.raises(ConfigError, match="use_case_file"):
+            RunConfig.load(cfg_path)
+
+
+class TestLogCommand:
+    def test_log_tails_latest_attempt(self, tmp_path):
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        cfg = _write_config(tmp_path, [POLICY_A])
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(cfg), "--run-dir", str(run_dir), env_extra=env)
+        # No attempts yet: exits cleanly with a note.
+        code, out, _, err = _run("log", str(run_dir), env_extra=env)
+        assert code == 0
+        # Create a fake attempt with a log; log should tail it.
+        attempt = run_dir / "stages" / "policy-mapper" / "0001-test"
+        attempt.mkdir(parents=True)
+        (attempt / "stderr.log").write_text(
+            "\n".join(f"line {i}" for i in range(50)) + "\n"
+        )
+        proc = subprocess.run(
+            [str(RUNNER), "log", str(run_dir), "--stage", "map", "--lines", "5"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0
+        assert "line 49" in proc.stdout
+        assert "line 40" not in proc.stdout  # only the tail

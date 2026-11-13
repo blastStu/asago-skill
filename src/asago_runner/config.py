@@ -129,9 +129,13 @@ class RunConfig:
             )
 
         system = _require_mapping(raw, "system")
-        for key in ("use_case_file", "profile_file", "qualification_facts_file"):
-            if not system.get(key):
-                raise ConfigError(f"system.{key} is required")
+        # Only the use-case description is required. The capability profile
+        # and qualification facts are optional: without them the Scenario
+        # Generator runs its own Stage-1 inference (an inferred-only run can
+        # finish with zero scenarios when required architecture evidence is
+        # unavailable — recorded honestly, never fabricated).
+        if not system.get("use_case_file"):
+            raise ConfigError("system.use_case_file is required")
         identity = system.get("identity") or {}
         if not identity.get("system_name"):
             raise ConfigError("system.identity.system_name is required")
@@ -260,14 +264,22 @@ class RunConfig:
                     "model": values["model"],
                 }
             )
+        retrieval = self.raw.get("retrieval") or {}
+        bi_model = retrieval.get("bi_encoder_model", "all-mpnet-base-v2")
+        remote_bi = isinstance(bi_model, str) and bi_model.startswith("http")
         rows.append(
             {
                 "role": "mapper_retrieval",
                 "receives": flows["mapper_retrieval"],
-                "provider_host": "local (default models; see compatibility record)",
-                "model": (self.raw.get("retrieval") or {}).get(
-                    "bi_encoder_model", "all-mpnet-base-v2"
+                "provider_host": (
+                    _host_of(bi_model)
+                    if remote_bi
+                    else "local (default models; see compatibility record)"
                 ),
+                "model": (
+                    retrieval.get("bi_encoder_model_name") or bi_model
+                ),
+                "api_key_env": retrieval.get("bi_encoder_api_key_env"),
             }
         )
         return rows

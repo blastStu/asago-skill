@@ -172,6 +172,8 @@ def new_run(
     # Validate every referenced input exists before creating anything.
     missing = [str(p) for p in cfg.policy_paths() if not p.is_file()]
     for key in ("use_case_file", "profile_file", "qualification_facts_file"):
+        if not cfg.raw["system"].get(key):
+            continue  # profile/facts optional: Stage-1 inference runs instead
         path = cfg.resolved_path(key)
         if not path.is_file():
             missing.append(f"{key}: {path}")
@@ -196,7 +198,9 @@ def new_run(
         policy_copies.append(dest)
         path_map[entry["path"]] = str(dest)
     for key in ("use_case_file", "profile_file", "qualification_facts_file"):
-        config_rel = cfg.raw["system"][key]
+        config_rel = cfg.raw["system"].get(key)
+        if not config_rel:
+            continue  # optional input: not supplied, not copied
         src = cfg.resolved_path(key)
         dest = originals / "system" / src.name
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -585,22 +589,47 @@ def scenarios(
                 selection = None
 
             use_case = run.path / "originals" / "system" / cfg.resolved_path("use_case_file").name
-            profile = run.path / "originals" / "system" / cfg.resolved_path("profile_file").name
-            facts_src = cfg.resolved_path("qualification_facts_file")
-            facts = run.path / "originals" / "system" / facts_src.name
+            # Profile and facts are optional user inputs: without them the
+            # generator's own Stage-1 inference runs.
+            profile = (
+                run.path / "originals" / "system" / cfg.resolved_path("profile_file").name
+                if cfg.raw.get("system", {}).get("profile_file")
+                else None
+            )
+            facts = (
+                run.path / "originals" / "system" / cfg.resolved_path("qualification_facts_file").name
+                if cfg.raw.get("system", {}).get("qualification_facts_file")
+                else None
+            )
             sssom = run.path / "originals" / "sssom" / cfg.sssom_path().name
 
+            if profile is None:
+                # The native projection preflight requires a reviewed
+                # profile; with none supplied there is nothing to preflight —
+                # the generator infers and its authoritative projection
+                # defers unresolved conditions (omitted_compatibility).
+                preflight_outcome = {
+                    "skipped": "no capability profile supplied",
+                    "note": "Stage-1 inference will produce an inferred_partial "
+                    "profile; an inferred-only run can finish with zero scenarios",
+                }
+                atomic_write_json(attempt_dir / "projection-preflight.json", preflight_outcome)
             try:
-                preflight_outcome = run_projection_preflight(
-                    cfg,
-                    attempt_dir,
-                    use_case_file=use_case,
-                    risk_extraction=extraction_path,
-                    sssom=sssom,
-                    profile=profile,
-                    qualification_facts=facts if facts.is_file() else None,
-                    facts_template=attempt_dir / "facts-template.yaml",
-                )
+                if profile is not None:
+                    preflight_outcome = run_projection_preflight(
+                        cfg,
+                        attempt_dir,
+                        use_case_file=use_case,
+                        risk_extraction=extraction_path,
+                        sssom=sssom,
+                        profile=profile,
+                        qualification_facts=facts if facts and facts.is_file() else None,
+                        facts_template=attempt_dir / "facts-template.yaml",
+                    )
+                else:
+                    preflight_outcome = json.loads(
+                        (attempt_dir / "projection-preflight.json").read_text(encoding="utf-8")
+                    )
             except Exception as exc:  # noqa: BLE001
                 run.record_stage_outcome(
                     "scenario-generator", attempt_id, {"status": FAILED, "error": str(exc)}
@@ -638,7 +667,7 @@ def scenarios(
                 risk_extraction=extraction_path,
                 sssom=sssom,
                 profile=profile,
-                qualification_facts=facts if facts.is_file() else None,
+                qualification_facts=facts if facts and facts.is_file() else None,
                 output_dir=output_dir,
             )
             atomic_write_json(
@@ -1076,6 +1105,72 @@ def evaluate(
             evaluations=dispatches,
             gaps=gaps,
         )
+
+
+# ---------------------------------------------------------------------------
+# log (live progress for long stages)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def log(
+    run_dir: Annotated[str, typer.Argument(help="Run directory")],
+    stage: Annotated[
+        str,
+        typer.Option(
+            help="Stage to tail (policy-mapper|map, scenario-generator|scenarios, "
+            "artifact-generator|artifacts, garak|evaluate). Default: the most "
+            "recently active attempt across stages."
+        ),
+    ] = "",
+    lines: Annotated[int, typer.Option(help="Number of log lines to show")] = 30,
+):
+    """Tail a running (or finished) stage attempt's log — plain text.
+
+    Convenience for humans and agents: while a long stage runs in the
+    background, call this periodically and summarize the last few lines
+    (chunk progress, model calls, tokens) instead of leaving the user in
+    silence.
+    """
+    run = _load_run(run_dir)
+    aliases = {
+        "map": "policy-mapper",
+        "scenarios": "scenario-generator",
+        "artifacts": "artifact-generator",
+        "evaluate": "garak",
+    }
+    stage_name = aliases.get(stage, stage) if stage else None
+    stage_dirs = [d for d in (run.path / "stages").iterdir() if d.is_dir()]
+    if stage_name:
+        if stage_name not in [d.name for d in stage_dirs]:
+            raise typer.BadParameter(f"no attempts recorded for stage {stage_name!r}")
+        stage_dirs = [run.path / "stages" / stage_name]
+    # Most recently modified attempt across the selected stage(s).
+    attempts = [a for d in stage_dirs for a in d.iterdir() if a.is_dir()]
+    if not attempts:
+        print("[asago-runner log] no stage attempts recorded in this run yet")
+        return typer.Exit(code=0)
+    latest = max(attempts, key=lambda a: a.stat().st_mtime)
+    sources = []
+    stderr = latest / "stderr.log"
+    if stderr.is_file():
+        sources.append(stderr)
+    # The scenario generator also writes a detailed pipeline log inside its
+    # native run directory.
+    for pipeline_log in sorted((latest / "runs").rglob("pipeline.log")):
+        sources.append(pipeline_log)
+    if not sources:
+        print(f"[asago-runner log] no logs yet in {run.rel(latest)}")
+        return typer.Exit(code=0)
+    print(f"[asago-runner log] {run.rel(latest)}")
+    for source in sources:
+        text = source.read_text(encoding="utf-8", errors="replace").splitlines()
+        tail = text[-lines:]
+        if tail:
+            print(f"--- {source.name} ({len(text)} lines) ---")
+            for line in tail:
+                print(line[:240])
+    return typer.Exit(code=0)
 
 
 # ---------------------------------------------------------------------------

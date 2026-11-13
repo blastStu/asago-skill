@@ -12,6 +12,7 @@ counts, downstream-supported risk counts and the agentic-filter state.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,12 +85,28 @@ def build_mapper_argv(
     env: dict[str, str] = {}
     if not no_llm and conn.get("api_key"):
         env["POLICY_MAPPER_API_KEY"] = str(conn["api_key"])
-    # Retrieval models: local defaults unless the configuration overrides them.
+    # Retrieval models: local CPU defaults unless configured otherwise. A
+    # URL means a remote embedding/rerank endpoint; its API key travels via
+    # environment (never argv), resolved from the config's env var name.
     retrieval = config.raw.get("retrieval") or {}
     if retrieval.get("bi_encoder_model"):
         argv += ["--bi-encoder-model", str(retrieval["bi_encoder_model"])]
+    if retrieval.get("bi_encoder_model_name"):
+        argv += ["--bi-encoder-model-name", str(retrieval["bi_encoder_model_name"])]
+    if retrieval.get("bi_encoder_api_key_env"):
+        key = os.environ.get(str(retrieval["bi_encoder_api_key_env"]))
+        if key:
+            env["POLICY_MAPPER_BI_ENCODER_API_KEY"] = key
     if retrieval.get("cross_encoder_model"):
         argv += ["--cross-encoder-model", str(retrieval["cross_encoder_model"])]
+    if retrieval.get("cross_encoder_model_name"):
+        argv += ["--cross-encoder-model-name", str(retrieval["cross_encoder_model_name"])]
+    if retrieval.get("cross_encoder_type"):
+        argv += ["--cross-encoder-type", str(retrieval["cross_encoder_type"])]
+    if retrieval.get("cross_encoder_api_key_env"):
+        key = os.environ.get(str(retrieval["cross_encoder_api_key_env"]))
+        if key:
+            env["POLICY_MAPPER_CROSS_ENCODER_API_KEY"] = key
     if retrieval.get("query_instruction") is not None:
         argv += ["--query-instruction", str(retrieval["query_instruction"])]
     if retrieval.get("no_cross_encoder"):

@@ -96,12 +96,16 @@ def run_preflight(
             supported,
             f"unsupported suffix {policy_path.suffix}" if not supported else None,
         )
-    for label, path in (
-        ("use-case", config.resolved_path("use_case_file")),
-        ("profile", config.resolved_path("profile_file")),
-        ("qualification-facts", config.resolved_path("qualification_facts_file")),
-        ("sssom", config.sssom_path()),
+    system_section = config.raw.get("system", {})
+    supplied = [("use-case", config.resolved_path("use_case_file"))]
+    for key, label in (
+        ("profile_file", "profile"),
+        ("qualification_facts_file", "qualification-facts"),
     ):
+        if system_section.get(key):
+            supplied.append((label, config.resolved_path(key)))
+    supplied.append(("sssom", config.sssom_path()))
+    for label, path in supplied:
         _check(f"input.exists.{label}", path.is_file(), str(path))
 
     # 2. Output location writable.
@@ -183,31 +187,55 @@ def run_preflight(
             f"installed at {commit} (version {version})",
         )
 
-    # 7. Capability profile + qualification facts validate against the native
-    #    pydantic models (model-free schema checks).
-    try:
-        from asago_scenario_generator.models.capability_profile import CapabilityProfile
+    # 7. Capability profile + qualification facts are OPTIONAL user inputs.
+    #    When supplied they are validated against the native pydantic models
+    #    (model-free). When absent, the Scenario Generator runs its own
+    #    Stage-1 inference — noted honestly, never fabricated here.
+    if config.raw.get("system", {}).get("profile_file"):
+        try:
+            from asago_scenario_generator.models.capability_profile import CapabilityProfile
 
-        import yaml
+            import yaml
 
-        profile_data = yaml.safe_load(
-            config.resolved_path("profile_file").read_text(encoding="utf-8")
-        )
-        CapabilityProfile.model_validate(profile_data)
-        _check("scenario.profile-schema", True)
-    except Exception as exc:  # noqa: BLE001
-        _check("scenario.profile-schema", False, str(exc))
-    facts_path = config.resolved_path("qualification_facts_file")
-    try:
-        facts = yaml.safe_load(facts_path.read_text(encoding="utf-8"))
-        has_facts = isinstance(facts, dict) and isinstance(facts.get("facts"), list)
+            profile_data = yaml.safe_load(
+                config.resolved_path("profile_file").read_text(encoding="utf-8")
+            )
+            CapabilityProfile.model_validate(profile_data)
+            _check("scenario.profile-schema", True)
+        except Exception as exc:  # noqa: BLE001
+            _check("scenario.profile-schema", False, str(exc))
+    else:
         _check(
-            "scenario.facts-schema",
-            has_facts,
-            None if has_facts else "facts must be a list under 'facts'",
+            "scenario.profile-optional-absent",
+            True,
+            "no capability profile supplied: the Scenario Generator's own "
+            "Stage-1 inference will run (an inferred-only run can finish "
+            "with zero scenarios when required architecture evidence is "
+            "unavailable)",
+            blocker=False,
         )
-    except Exception as exc:  # noqa: BLE001
-        _check("scenario.facts-schema", False, str(exc))
+    facts_config = config.raw.get("system", {}).get("qualification_facts_file")
+    if facts_config:
+        try:
+            facts = yaml.safe_load(
+                config.resolved_path("qualification_facts_file").read_text(encoding="utf-8")
+            )
+            has_facts = isinstance(facts, dict) and isinstance(facts.get("facts"), list)
+            _check(
+                "scenario.facts-schema",
+                has_facts,
+                None if has_facts else "facts must be a list under 'facts'",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _check("scenario.facts-schema", False, str(exc))
+    else:
+        _check(
+            "scenario.facts-optional-absent",
+            True,
+            "no qualification facts supplied: unresolved conditions are "
+            "deferred to authoritative projection (omitted_compatibility)",
+            blocker=False,
+        )
 
     # 8. SSSOM mapping contract with the native loader/index.
     try:

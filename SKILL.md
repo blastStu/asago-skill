@@ -62,9 +62,11 @@ briefing. Where no such tool exists, ask in chat — **one short question at
 a time** with lettered options, never a multi-paragraph blob. Explanations
 come after the choice, when they are relevant, or when the user asks.
 
-**1. Open with the plan.** The moment a user starts an Asago run (after
-intake questions are answered and the configuration exists), tell them the
-whole journey before running anything:
+**1. Open with the plan — as your very first output.** The instant a user
+asks to run Asago, welcome them and show the journey (below) *before* any
+question or setup. Do not gather inputs first and plan later; the plan is
+the greeting. (Adapt it once you know built-vs-proposed; a generic version
+covering both is fine until then.)
 
 > Welcome to Asago. Here's what we're going to do, in order:
 > 1. **Check the environment** — installs, the IBM risk data, your model
@@ -115,8 +117,13 @@ Adapt the wording to the user and their language; keep the structure.
 - *Before:* what is about to run, what it does in one sentence, and roughly
   how long it takes ("the mapper makes hundreds of small model calls — this
   took ~15 minutes in our test run").
-- *During:* long stages are not silent. Say what is running. If a stage
-  fails, say what happened and what you're doing about it before retrying.
+- *During:* long stages are **never silent**. Model-calling stages (map,
+  scenarios, artifacts, evaluate) take minutes. Run them with your
+  harness's background-execution facility so you stay responsive, then
+  every ~30 seconds call `.venv/bin/asago-runner log <run>` and give the
+  user a one-line update summarizing the tail (chunk progress, model calls,
+  tokens) — not the raw log. Say so if a stage fails, and what you are
+  doing about it, before retrying.
 - *After:* the outcome in plain language (not raw JSON): what was found,
   what was excluded and why, then show the checklist and say what's next.
 
@@ -180,7 +187,15 @@ than the option descriptions — details come when they matter.
 Then gather the rest **one short question at a time** (never a briefing),
 using the question tool where a choice fits and short chat questions for
 free-text like file paths. `references/review-guide.md` has the full
-checklist and question phrasing:
+checklist and question phrasing. **Default to what the user supplies, and
+only that**: the capability profile and qualification facts are OPTIONAL —
+if the user doesn't provide them, leave them out of the configuration and
+the Scenario Generator runs its own Stage-1 inference (an inferred-only run
+can finish with zero scenarios; that is an honest outcome, never a reason
+to fabricate context). You may OFFER to draft a profile or facts file from
+what the user has told you — but if you do, show the draft in full, get
+explicit user approval before it enters the run, and record it as
+agent-drafted in the decision journal. Never generate these files silently.
 
 - **Policy documents** (`.md`, `.txt`, `.pdf`, `.docx`, `.html`, …).
 - **System context**: use-case description; capability profile;
@@ -200,6 +215,12 @@ checklist and question phrasing:
   labelled smoke checks. Ask whether concerns are missing from
   the policy; any supplement is a draft the user must verify before use.
 - **Run scope**: which risks/surfaces, generation limits, target samples.
+- **Optional — retrieval models for the Policy Mapper** (ask, marked
+  optional, with the question tool): the default runs local CPU models
+  (downloaded automatically, nothing leaves the machine); a remote
+  embedding/rerank endpoint is faster and better quality but means policy
+  text is sent to that provider (it appears in the data-flow table). Only
+  configure `retrieval:` if the user chooses it.
 
 Show the user the data-flow table from preflight output: which provider
 receives policies, system facts, attacks and responses. Use a labelled
@@ -332,6 +353,11 @@ The skill is **Asago**: it runs the Asago pipeline end to end. The current
 evaluation endpoint is Garak (plus the offline HTML overview); the runner's
 stage architecture is evaluation-agnostic, and later phases add OSCAL
 export, richer reconciliation, resume/recovery and broader coverage.
+
+The Scenario Generator runs its **taxonomy- and risk-driven workflow**
+(policy-mapper risks → attack patterns → scenarios), not the STPA workflow.
+If a user asks, say so plainly; STPA is a separate future extension, not a
+Phase 1 mode.
 Recommenders, mitigation deployment and compliance claims are out of scope.
 Do not claim general policy compliance or system safety from a bounded
 adversarial sample.

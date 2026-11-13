@@ -32,6 +32,11 @@ policy:
 
 system:
   use_case_file: system/use-case.md
+  # OPTIONAL: capability profile and qualification facts. Omit them to run
+  # with only what you supply — the Scenario Generator then performs its
+  # own Stage-1 inference (an inferred-only run can finish with zero
+  # scenarios when required architecture evidence is missing). An agent may
+  # offer to draft these for your review; never include them unreviewed.
   profile_file: system/capability-profile.yaml
   qualification_facts_file: system/qualification-facts.yaml
   identity:
@@ -71,10 +76,19 @@ connections:
     model_env: JUDGE_MODEL
     api_key_env: JUDGE_API_KEY
 
-# Retrieval: local default models (downloaded on first use; no API needed).
+# Retrieval for the Policy Mapper. OPTIONAL — the defaults below are local
+# CPU models (downloaded on first use; policy text stays on your machine).
+# To use a remote embedding endpoint instead, set bi_encoder_model to the
+# endpoint URL, bi_encoder_model_name to the served model, and
+# bi_encoder_api_key_env to the env var holding its key (policy chunk text
+# is then sent to that provider — it appears in the data-flow table).
 retrieval:
   bi_encoder_model: all-mpnet-base-v2
   cross_encoder_model: cross-encoder/ms-marco-MiniLM-L-12-v2
+  # bi_encoder_model: https://embeddings.example.com/v1
+  # bi_encoder_model_name: text-embedding-3-large
+  # bi_encoder_api_key_env: EMBEDDING_API_KEY
+  # cross_encoder_type: score   # score | rerank | generative
 
 scope:
   # null = all mapped risks; or list explicit risk IDs after reviewing the
