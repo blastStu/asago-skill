@@ -48,6 +48,7 @@ _STEP_ICONS = {
     "needs_review": "[!]",
     "failed": "[X]",
     "blocked": "[!]",
+    "skipped": "[-]",
     "not_started": "[ ]",
 }
 
@@ -56,7 +57,14 @@ def derive_progress(manifest: dict, run_path: Path | None = None) -> list[dict]:
     """Derive the ordered per-step state of a run for a progress checklist."""
     flow = manifest.get("flow", {})
     stages = manifest.get("stages", {})
+    subject = manifest.get("subject", "built")
     states: dict[str, str] = {}
+
+    if subject == "proposed":
+        # Design-time run: everything after the Scenario Generator is
+        # deliberately out of scope — the described agent is not built.
+        for step in ("artifacts", "test-plan", "evaluate"):
+            states[step] = "skipped"
 
     states["setup"] = "done" if manifest.get("run_id") else "not_started"
 
@@ -98,24 +106,27 @@ def derive_progress(manifest: dict, run_path: Path | None = None) -> list[dict]:
 
     states["map"] = stage_state("policy-mapper", "mapper_output")
     states["scenarios"] = stage_state("scenario-generator", "scenario_handoff")
-    states["artifacts"] = stage_state("artifact-generator", "replay_entries")
+    if "artifacts" not in states:
+        states["artifacts"] = stage_state("artifact-generator", "replay_entries")
 
     test_plan = flow.get("test_plan_review", {}).get("state")
-    states["test-plan"] = (
-        "done" if test_plan == "resolved"
-        else "needs_review" if test_plan == "pending"
-        else "not_started"
-    )
+    if "test-plan" not in states:
+        states["test-plan"] = (
+            "done" if test_plan == "resolved"
+            else "needs_review" if test_plan == "pending"
+            else "not_started"
+        )
 
-    garak = stages.get("garak", {})
-    if garak.get("status") == "completed":
-        states["evaluate"] = "done"
-    elif garak.get("status") == "completed_with_gaps":
-        states["evaluate"] = "done_with_gaps"
-    elif garak.get("attempts"):
-        states["evaluate"] = garak.get("status", "failed")
-    else:
-        states["evaluate"] = "not_started"
+    if "evaluate" not in states:
+        garak = stages.get("garak", {})
+        if garak.get("status") == "completed":
+            states["evaluate"] = "done"
+        elif garak.get("status") == "completed_with_gaps":
+            states["evaluate"] = "done_with_gaps"
+        elif garak.get("attempts"):
+            states["evaluate"] = garak.get("status", "failed")
+        else:
+            states["evaluate"] = "not_started"
 
     if run_path is not None and (run_path / "reports" / "summary.json").is_file():
         states["report"] = "done"
@@ -150,6 +161,11 @@ def render_progress_checklist(progress: list[dict], run_id: str | None = None) -
             note = "  (failed — see blockers/attempt logs)"
         elif item["state"] == "blocked":
             note = "  (blocked — see blockers)"
+        elif item["state"] == "skipped":
+            note = (
+                "  (design-time run: the proposed agent is not built — "
+                "stops after the Scenario Generator by design)"
+            )
         lines.append(f"  {icon} {item['step']:<13} {item['label']}{note}")
     remaining = sum(1 for i in progress if i["state"] == "not_started")
     lines.append(f"  {remaining} step(s) remaining.")
@@ -163,6 +179,7 @@ def build_summary(run: RunDir) -> dict:
         "schema_version": 1,
         "run_id": manifest.get("run_id"),
         "label": manifest.get("label"),
+        "subject": manifest.get("subject", "built"),
         "created_at": manifest.get("created_at"),
         "generated_at": run.manifest().get("updated_at"),
         "stages": {},
@@ -174,6 +191,14 @@ def build_summary(run: RunDir) -> dict:
         "tested_surface": None,
         "notes": [],
     }
+    if manifest.get("subject") == "proposed":
+        summary["notes"].append(
+            "design-time run: the subject is a proposed design, not a built "
+            "system. The run stops after the Scenario Generator; the "
+            "scenarios below are the threat picture for the design as "
+            "described. No artifacts were generated and no evaluation was "
+            "attempted or is possible until the system is built."
+        )
 
     stages = manifest.get("stages", {})
     for stage, record in stages.items():
@@ -364,6 +389,18 @@ def render_html(run: RunDir, summary: dict) -> Path:
         else ""
     )
 
+    subject_html = ""
+    if summary.get("subject") == "proposed":
+        subject_html = (
+            "<div class='note' style='border:2px solid #9a6700; padding:0.6rem 1rem;"
+            " border-radius:8px; margin:0.8rem 0;'>"
+            "<strong>Design-time run.</strong> The subject is a proposed design, "
+            "not a built system: the run deliberately stops after the Scenario "
+            "Generator. The scenarios below are the threat picture for the design "
+            "as described — no evaluation was attempted or is possible until the "
+            "system is built.</div>"
+        )
+
     links = []
     for rel, label in [
         ("../stages/policy-mapper", "Policy Mapper native outputs"),
@@ -409,6 +446,7 @@ not a finding, an admitted scenario is not an executable artifact, and an
 inconclusive evaluation is not a pass. The runner does not execute business
 tools; a proposed tool call is not evidence of a completed backend effect.</p>
 
+{subject_html}
 <h2>Stage status</h2>
 <table><tr><th>Stage</th><th>Status</th><th>Latest attempt</th></tr>{stage_html}</table>
 

@@ -77,6 +77,7 @@ class RunConfig:
     raw: dict
     path_map: dict[str, str] = field(default_factory=dict)
     connections: dict[str, ConnectionSpec] = field(default_factory=dict)
+    subject: str = "built"  # built | proposed
     selected_risk_ids: list[str] | None = None
     generation_mode: str = "coverage"
     max_scenarios_per_pattern: int | None = 2
@@ -117,6 +118,15 @@ class RunConfig:
         for entry in docs:
             if not isinstance(entry, dict) or not entry.get("path"):
                 raise ConfigError("each policy.documents entry needs a path")
+
+        run_section = _require_mapping(raw, "run")
+        cfg.subject = str(run_section.get("subject", "built")).strip().lower()
+        if cfg.subject not in ("built", "proposed"):
+            raise ConfigError(
+                "run.subject must be 'built' (the system exists and can be "
+                "evaluated end to end) or 'proposed' (a design description "
+                "only: the run stops after the Scenario Generator)"
+            )
 
         system = _require_mapping(raw, "system")
         for key in ("use_case_file", "profile_file", "qualification_facts_file"):
@@ -185,6 +195,7 @@ class RunConfig:
             "schema_version": CONFIG_SCHEMA_VERSION,
             "config_source": self.source_path.name,
             "config_sha256": _file_sha(self.source_path),
+            "subject": self.subject,
             "policy_documents": [
                 {"path": p.name, "sha256": _file_sha(p)} for p in self.policy_paths()
             ],
@@ -231,6 +242,16 @@ class RunConfig:
         rows = []
         for role, spec in self.connections.items():
             values = spec.resolve()
+            if self.subject == "proposed" and role in ("artifact_llm", "target", "judge"):
+                rows.append(
+                    {
+                        "role": role,
+                        "receives": "not applicable — design-time run stops after the Scenario Generator",
+                        "provider_host": None,
+                        "model": None,
+                    }
+                )
+                continue
             rows.append(
                 {
                     "role": role,

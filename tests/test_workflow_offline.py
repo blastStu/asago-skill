@@ -245,3 +245,89 @@ class TestReportingAndTelemetry:
         assert code == 1  # no live evidence yet → problems reported
         problems = " ".join(out["problems"])
         assert "mapper.live-attempt-present" in problems
+
+
+class TestDesignTimeRuns:
+    """run.subject: proposed — pipeline stops after the Scenario Generator."""
+
+    def _config(self, tmp_path: Path, subject: str) -> Path:
+        cfg = _write_config(tmp_path, [POLICY_A])
+        text = cfg.read_text()
+        text = text.replace("run:\n  label: workflow-test",
+                            f"run:\n  label: workflow-test\n  subject: {subject}")
+        cfg.write_text(text)
+        return cfg
+
+    def test_proposed_config_validates(self, tmp_path):
+        from asago_runner.config import RunConfig
+
+        cfg = RunConfig.load(self._config(tmp_path, "proposed"))
+        assert cfg.subject == "proposed"
+
+    def test_invalid_subject_rejected(self, tmp_path):
+        from asago_runner.config import ConfigError, RunConfig
+
+        with pytest.raises(ConfigError, match="run.subject"):
+            RunConfig.load(self._config(tmp_path, "maybe"))
+
+    def test_preflight_skips_downstream_credentials(self, tmp_path):
+        # Only mapper/scenario credentials set; artifact/target/judge unset.
+        env = {"A": "u", "B": "m", "C": "k"}
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(self._config(tmp_path, "proposed")),
+             "--run-dir", str(run_dir), env_extra=env)
+        code, out, _, _ = _run("preflight", str(run_dir), env_extra=env)
+        assert code == 2  # needs_review (the input-readiness gate), not blocked
+        request = json.loads((run_dir / "reviews" / "input-readiness.request.json").read_text())
+        assert request["summary"]["subject"] == "proposed"
+        # Downstream data-flow rows are marked not applicable.
+        flows = {row["role"]: row for row in request["summary"]["data_flow"]}
+        assert flows["target"]["receives"].startswith("not applicable")
+
+    def test_built_preflight_blocks_on_missing_target_credentials(self, tmp_path):
+        env = {"A": "u", "B": "m", "C": "k"}  # no target/judge creds
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(self._config(tmp_path, "built")),
+             "--run-dir", str(run_dir), env_extra=env)
+        code, out, _, _ = _run("preflight", str(run_dir), env_extra=env)
+        assert code == 3  # blocked: full chain needs all five roles
+        assert any("credentials.target" in b["check"] for b in out["blockers"])
+
+    def test_artifacts_blocked_for_proposed_subject(self, tmp_path):
+        env = {"A": "u", "B": "m", "C": "k"}
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(self._config(tmp_path, "proposed")),
+             "--run-dir", str(run_dir), env_extra=env)
+        code, out, _, _ = _run("artifacts", str(run_dir), env_extra=env)
+        assert code == 3
+        assert any("design-time run" in b for b in out["blockers"])
+
+    def test_progress_checklist_marks_downstream_skipped(self, tmp_path):
+        from asago_runner.reporting import derive_progress, render_progress_checklist
+
+        env = {"A": "u", "B": "m", "C": "k"}
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(self._config(tmp_path, "proposed")),
+             "--run-dir", str(run_dir), env_extra=env)
+        code, out, _, _ = _run("status", str(run_dir), env_extra=env)
+        progress = {p["step"]: p["state"] for p in out["progress"]}
+        assert progress["artifacts"] == "skipped"
+        assert progress["test-plan"] == "skipped"
+        assert progress["evaluate"] == "skipped"
+        assert progress["report"] == "not_started"
+        text = render_progress_checklist(out["progress"], "x")
+        assert "design-time run" in text
+
+    def test_summary_carries_design_time_note(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.reporting import build_summary
+
+        run = RunDir.create(tmp_path / "r2")
+
+        def mutate(m):
+            m["subject"] = "proposed"
+
+        run.update_manifest(mutate)
+        summary = build_summary(run)
+        assert summary["subject"] == "proposed"
+        assert any("design-time run" in n for n in summary["notes"])

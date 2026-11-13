@@ -18,6 +18,13 @@ schema_version: 1
 run:
   label: synthetic-support-assistant-smoke
   operator: example-operator
+  # Is the subject already built, or a proposed design?
+  #   built    - the system exists and can be evaluated end to end
+  #              (requires target and judge connections)
+  #   proposed - a design description only: the run stops after the
+  #              Scenario Generator and reports the threat picture for
+  #              the design; no target/judge credentials needed
+  subject: built
 
 policy:
   documents:

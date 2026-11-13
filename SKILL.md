@@ -70,6 +70,26 @@ whole journey before running anything:
 > Two steps need decisions from you (2 and 7); the rest run on their own.
 > Shall we start with the environment check?
 
+For a **proposed design** (the user has not built the agent yet), the plan
+is shorter and ends differently:
+
+> Welcome to Asago. Since we're assessing a proposed design, here's the
+> journey:
+> 1. **Check the environment** — installs, the IBM risk data, your two
+>    generation-model connections (no model calls yet)
+> 2. **Your review: input readiness** — documents, destinations, scope
+> 3. **Assess your policies** — parse checks; conflict review if several
+> 4. **Run the Policy Mapper** — your policy becomes a risk landscape
+> 5. **Generate scenarios** — the risks plus your design description become
+>    the concrete attacks your agent would face if built as described
+> 6. **Report and verify** — the threat picture for your design, with the
+>    evidence trail
+>
+> We deliberately stop after the scenarios: there's no built system to
+> attack yet, so no evaluation happens and you don't need a target
+> endpoint. When you do build it, we can pick up from these same policies
+> and run the full chain.
+
 Adapt the wording to the user and their language; keep the structure.
 
 **2. Narrate every step — before, during, after.**
@@ -122,15 +142,46 @@ approval from elapsed time or stage progression.
 
 ### 1. Intake
 
-Gather from the user (see `references/review-guide.md` for the full
+**Ask this first, before anything else** (adapt the wording; keep the
+clarity about why you are asking and what happens with the answer):
+
+> Before we set anything up, one question about where your system is today:
+>
+> **Have you already built the agent you want to assess, or are you
+> proposing a design you haven't built yet?**
+>
+> Both are perfectly good uses of Asago — the answer decides how far we can
+> go and what I'll ask you for:
+>
+> - **If it's built**, we can run the whole chain: your policy becomes a
+>   risk landscape, the risks become attack scenarios, and those become
+>   actual tests run against your system's endpoint. I'll need model
+>   connections for every stage, including the system under test and a
+>   judge.
+> - **If it's a proposed design**, we run policy → risks → scenarios and
+>   stop there. You get the threat picture for your design — the attacks
+>   your agent would face if built as described — which is exactly what you
+>   want before building it. Nothing is evaluated (there's nothing to
+>   attack yet), and you won't need a target endpoint or a judge, only the
+>   two generation-model connections.
+>
+> Your answer is recorded in the run (`run.subject: built` or `proposed`)
+> and shapes the whole pipeline: how far it goes, and which credentials
+> I'll ask for.
+
+Then gather from the user (see `references/review-guide.md` for the full
 checklist and question phrasing):
 
 - **Policy documents** (`.md`, `.txt`, `.pdf`, `.docx`, `.html`, …).
 - **System context**: use-case description; capability profile;
-  qualification facts; system identity (name, boundary, sanitized endpoint,
-  who confirmed it and when — label synthetic examples and unknown values).
-- **Model connections** per role (mapper/scenario/artifact generation,
-  target, judge) as environment variables named in the run configuration.
+  qualification facts; system identity — for a built system, the name,
+  boundary, sanitized endpoint identity, and who confirmed these facts and
+  when; for a proposed design, say so plainly and describe the intended
+  boundary instead (there is no endpoint yet). Label synthetic examples and
+  unknown values.
+- **Model connections** per role as environment variables named in the run
+  configuration — mapper and scenario generation for every run; artifact
+  generation, target and judge additionally when the subject is built.
   Copy `examples/config.example.yaml`, point it at their documents, and have
   them export the env vars it names. Any OpenAI-compatible model works, but
   each role has request-shape requirements (structured output, token/temperature
@@ -195,6 +246,14 @@ Stage-specific narration cues (say these in your own words):
 
 Notes:
 
+- **Design-time runs (`run.subject: proposed`) stop after `scenarios`** —
+  the `artifacts`, `replay-review` and `evaluate` commands refuse with a
+  clear message. After `scenarios`, present the threat picture: each
+  admitted scenario with its attack goal, entry point and expected unsafe
+  behaviour, plus quarantined candidates and gaps — then run `report` and
+  `verify-run` as usual and walk the user through `reports/index.html`,
+  which carries a design-time banner. Offer to resume the full chain in a
+  new run once the system is built.
 - For multiple policies, `intake` returns a conflict review request. Present
   the parsed documents, ask about suspected disagreements with actual
   passages, and record the user's precedence answer. If precedence changes

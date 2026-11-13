@@ -67,6 +67,13 @@ Open this repository in Claude Code (the skill is discovered from
 The skill (see `SKILL.md`) will guide you through everything the libraries
 need, in this order:
 
+0. **Built or proposed?** — the first question. If the agent you're
+   assessing is already **built**, the run goes the full chain through
+   evaluation against its endpoint. If it's a **proposed design**, that's
+   equally valid: the run stops after the Scenario Generator and gives you
+   the threat picture for the design — the attacks your agent would face
+   if built as described. No evaluation is attempted (there's nothing to
+   attack yet) and no target/judge credentials are needed.
 1. **Intake questions** — your policy documents; what the system is for and
    how it works (purpose, entry points, tools, data); who owns it and who
    confirmed those facts; whether there are concerns you care about that
@@ -163,6 +170,11 @@ A run configuration is a small secret-free YAML file
   api_key_env: TARGET_API_KEY}`. Export those before running stages.
 - **Scope**: selected risk IDs (or all), bounded generation mode, artifact
   cap, samples per artifact, stage deadline.
+- **Subject status**: `run.subject: built` (default — full chain including
+  evaluation) or `proposed` (design-time run: stops after the Scenario
+  Generator and reports the threat picture; artifact/target/judge
+  credentials are not required and those stages refuse with a clear
+  message).
 - **Options** for model-specific request shapes (for example
   `mapper_output_token_parameter: max_completion_tokens` and
   `mapper_temperature: 1.0` for models that reject the legacy parameters).

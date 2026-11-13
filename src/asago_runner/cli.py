@@ -91,6 +91,24 @@ def _load_config(run: RunDir) -> RunConfig:
         raise typer.BadParameter(f"run configuration error: {exc}") from exc
 
 
+def _require_built_subject(run: RunDir, stage: str, run_dir: str) -> Outcome | None:
+    """Design-time runs stop after the Scenario Generator by design."""
+    cfg = _load_config(run)
+    if cfg.subject == "proposed":
+        return Outcome(stage, run_dir).finish(
+            BLOCKED,
+            blockers=[
+                "this is a design-time run (run.subject: proposed): the "
+                "described agent is not built, so there is nothing to "
+                "evaluate. The run deliberately stops after the Scenario "
+                "Generator and reports the threat picture for the proposed "
+                "design. To evaluate, build the system and start a new run "
+                "with run.subject: built plus a target endpoint."
+            ],
+        )
+    return None
+
+
 def _stage_record(run: RunDir, stage: str, **fields) -> dict:
     watch = Stopwatch()
 
@@ -175,6 +193,7 @@ def new_run(
                 "schema_version": 1,
                 "run_id": run_id,
                 "label": (cfg.raw.get("run") or {}).get("label") or target.name,
+                "subject": cfg.subject,
                 "operator": (cfg.raw.get("run") or {}).get("operator") or "unknown",
                 "created_at": utc_now_iso(),
                 "updated_at": utc_now_iso(),
@@ -248,9 +267,18 @@ def preflight(
                 "connections (see data-flow destinations), scope and "
                 "telemetry settings. Confirm the data-flow table shows only "
                 "destinations you accept for this material."
+                + (
+                    " This is a DESIGN-TIME run: the subject is a proposed "
+                    "design, so the pipeline stops after the Scenario "
+                    "Generator and no evaluation will be attempted."
+                    if cfg.subject == "proposed"
+                    else ""
+                )
             ),
             material=material,
             summary={
+                "subject": cfg.subject,
+                "subject_note": report.get("subject_note"),
                 "data_flow": report["data_flow"],
                 "shared_model_roles": report["shared_model_roles"],
                 "scope": report.get("scope"),
@@ -705,6 +733,9 @@ def artifacts(
     run = _load_run(run_dir)
     cfg = _load_config(run)
     with run.locked(f"artifacts pid={__import__('os').getpid()}"):
+        design_gate = _require_built_subject(run, "artifacts", run_dir)
+        if design_gate is not None:
+            return design_gate
         flow = run.manifest().get("flow", {})
         handoff_rel = flow.get("scenario_handoff", {}).get("receipts")
         if not handoff_rel:
@@ -843,6 +874,9 @@ def replay_review(
     """Prepare (or record) the generated-test-plan review before evaluation."""
     run = _load_run(run_dir)
     with run.locked(f"replay-review pid={__import__('os').getpid()}"):
+        design_gate = _require_built_subject(run, "replay-review", run_dir)
+        if design_gate is not None:
+            return design_gate
         flow = run.manifest().get("flow", {})
         entries = flow.get("replay_entries", {}).get("entries")
         if not entries:
@@ -936,6 +970,9 @@ def evaluate(
     run = _load_run(run_dir)
     cfg = _load_config(run)
     with run.locked(f"evaluate pid={__import__('os').getpid()}"):
+        design_gate = _require_built_subject(run, "evaluate", run_dir)
+        if design_gate is not None:
+            return design_gate
         flow = run.manifest().get("flow", {})
         entries = flow.get("replay_entries", {}).get("entries")
         if not entries:

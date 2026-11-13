@@ -25,6 +25,10 @@ from .hashing import sha256_file
 from .intake import SUPPORTED_SUFFIXES
 from .nexus import NexusError, ensure_nexus_cache, exercise_native_loader
 
+# All connection roles (generation + evaluation). A proposed-design run
+# only uses the first two.
+ROLES_ALL = ("mapper_llm", "scenario_llm", "artifact_llm", "target", "judge")
+
 _CHECKS: list[dict] = []
 
 
@@ -123,8 +127,23 @@ def run_preflight(
         except FileNotFoundError as exc:
             _check(f"component.cli.{cli}", False, str(exc))
 
-    # 4. Credential presence (values never recorded).
+    # 4. Credential presence (values never recorded). For a proposed-design
+    #    run the pipeline stops after the Scenario Generator, so only the
+    #    generation roles the run actually uses need connections.
+    downstream_roles = () if config.subject == "proposed" else ROLES_ALL
+    required_roles = ("mapper_llm", "scenario_llm") + tuple(
+        r for r in ("artifact_llm", "target", "judge") if r in downstream_roles
+    )
     for role, spec in config.connections.items():
+        if role not in required_roles:
+            _check(
+                f"credentials.{role}",
+                True,
+                "not required: design-time run (subject: proposed) stops after "
+                "the Scenario Generator",
+                blocker=False,
+            )
+            continue
         values = spec.resolve()
         _check(
             f"credentials.{role}",
@@ -242,6 +261,14 @@ def run_preflight(
         "ok": not blockers,
         "checks": _CHECKS,
         "blockers": blockers,
+        "subject": config.subject,
+        "subject_note": (
+            "design-time run: the subject is a proposed design; the pipeline "
+            "stops after the Scenario Generator and reports the threat picture"
+            if config.subject == "proposed"
+            else "the subject is a built system; the full chain including "
+            "evaluation is in scope"
+        ),
         "data_flow": config.data_flow_table(),
         "shared_model_roles": config.shared_model_roles(),
         "note": (
