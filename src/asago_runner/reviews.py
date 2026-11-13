@@ -19,6 +19,15 @@ from .hashing import sha256_file
 REVIEW_SCHEMA_VERSION = 1
 
 
+# Decisions that resolve (unlock) each review kind. Anything else is
+# recorded in the journal but leaves the gate closed.
+RESOLVING_DECISIONS = {
+    "input-readiness": {"approve"},
+    "test-plan": {"approve"},
+    "policy-conflict": {"no-conflict", "precedence-unchanged-input", "reconcile"},
+}
+
+
 @dataclass
 class ReviewRequest:
     """A persisted request for human review."""
@@ -40,6 +49,9 @@ class ReviewRequest:
             "material": self.material,
             "summary": self.summary,
             "response_file": self.response_path.name,
+            "allowed_decisions": sorted(
+                RESOLVING_DECISIONS.get(self.kind, [])
+            ),
             **self.extras,
         }
         atomic_write_json(self.request_path, payload)
@@ -54,7 +66,13 @@ class ReviewRequest:
         return {entry["path"]: entry["sha256"] for entry in self.material}
 
     def validate_response(self, response: dict) -> list[str]:
-        """Check a response file against the request's hash bindings."""
+        """Check a response file against the request's hash bindings.
+
+        A response whose decision is not a resolving decision for this
+        review kind is a problem: the gate must stay closed. Rejections are
+        legitimate answers — they are recorded by the caller — but they
+        never resolve the gate.
+        """
         problems: list[str] = []
         if response.get("request_file") != self.request_path.name:
             problems.append("response does not name this request file")
@@ -65,8 +83,17 @@ class ReviewRequest:
                 problems.append(f"response does not bind hash of {path}")
             elif reviewed[path] != digest:
                 problems.append(f"hash mismatch for {path}: material changed since request")
-        if not response.get("decision"):
+        decision = response.get("decision")
+        if not decision:
             problems.append("response records no decision")
+        else:
+            allowed = RESOLVING_DECISIONS.get(self.kind)
+            if allowed and decision not in allowed:
+                problems.append(
+                    f"decision {decision!r} does not resolve this review "
+                    f"(resolving decisions: {sorted(allowed)}); the gate "
+                    "remains closed and the answer is recorded in the journal"
+                )
         return problems
 
 

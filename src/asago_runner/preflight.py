@@ -176,9 +176,22 @@ def run_preflight(
     except NexusError as exc:
         _check("nexus.dependency-data-pairing", False, str(exc))
 
-    # 6. Garak environment present and pinned.
+    # 6. Garak environment present and pinned. Not required for
+    #    design-time runs: evaluation is out of scope when the subject is
+    #    a proposed design.
     garak_python = garak_env_dir / ".venv" / "bin" / "python"
-    _check("garak.environment", garak_python.is_file(), str(garak_python))
+    design_note = (
+        "not required: design-time run (subject: proposed) stops after "
+        "the Scenario Generator"
+        if config.subject == "proposed"
+        else None
+    )
+    _check(
+        "garak.environment",
+        garak_python.is_file() or design_note is not None,
+        design_note or str(garak_python),
+        blocker=design_note is None,
+    )
     if garak_python.is_file():
         commit, version = garak_commit(garak_env_dir)
         _check(
@@ -260,6 +273,26 @@ def run_preflight(
             )
     except Exception as exc:  # noqa: BLE001
         _check("sssom.native-load", False, str(exc))
+
+    # 8b. Reviewed tool schema (optional): resolvable and shaped like a
+    #     tool contract when supplied.
+    if config.tools_schema_file:
+        try:
+            schema_path = config._resolve(config.tools_schema_file)
+            tools = json.loads(schema_path.read_text(encoding="utf-8")).get("tools", [])
+            ok_tools = isinstance(tools, list) and all(
+                isinstance(t, dict) and isinstance(t.get("function"), dict)
+                for t in tools
+            )
+            _check(
+                "tools.reviewed-schema",
+                ok_tools,
+                f"{len(tools)} reviewed tool schemas at {run.rel(schema_path)}"
+                if ok_tools
+                else "tools schema must be a list of function-tool objects",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _check("tools.reviewed-schema", False, str(exc))
 
     # 9. Local retrieval/parser assets (labelled, informational).
     hf_home = Path(

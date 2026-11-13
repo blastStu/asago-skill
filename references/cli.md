@@ -18,8 +18,10 @@ plus stage-specific fields (`attempt`, `accounting`, `inventory_summary`,
 ## Commands
 
 ```
-asago-runner new-run --config <cfg.yaml> [--run-dir DIR] [--cache-dir DIR]
+asago-runner new-run --config <cfg.yaml> [--run-dir DIR] [--runs-root DIR]
+                     [--cache-dir DIR]
 asago-runner preflight  RUN [--response FILE] [--cache-dir DIR] [--garak-env DIR]
+                     [--skip-nexus-fetch]
 asago-runner intake     RUN [--response FILE]
 asago-runner map        RUN [--no-llm]
 asago-runner scenarios  RUN
@@ -29,9 +31,13 @@ asago-runner evaluate   RUN [--garak-env DIR]
 asago-runner report     RUN
 asago-runner verify-run RUN
 asago-runner status     RUN
+asago-runner log        RUN [--stage STAGE] [--lines N]
 asago-runner respond    REQUEST --decision D [--actor A] [--notes N]
                         [--clarification TEXT] [--reconciliation-file FILE]
 ```
+
+`log` tails the latest (or named) stage attempt's log — plain text, for
+live progress updates while a long stage runs in the background.
 
 `RUN` is the run directory created by `new-run`. **Runs are isolated**: by
 default `new-run` creates the run under `~/.asago/runs/<label>` (override

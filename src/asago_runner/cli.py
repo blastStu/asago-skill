@@ -33,7 +33,7 @@ from . import (
     __version__,
 )
 from .config import ConfigError, RunConfig
-from .evidence import RunDir, RunLockError, Stopwatch, atomic_write_json, utc_now_iso
+from .evidence import RunDir, atomic_write_json, utc_now_iso
 from .hashing import sha256_file
 from .intake import (
     IntakeError,
@@ -42,7 +42,6 @@ from .intake import (
     prepare_conflict_review,
 )
 from .preflight import run_preflight
-from .proc import quote_command
 from .reviews import ReviewRequest, bind_material, write_review_response
 from .telemetry import init_telemetry, stage_span
 
@@ -109,16 +108,13 @@ def _require_built_subject(run: RunDir, stage: str, run_dir: str) -> Outcome | N
     return None
 
 
-def _stage_record(run: RunDir, stage: str, **fields) -> dict:
-    watch = Stopwatch()
-
+def _stage_record(run: RunDir, stage: str, **fields) -> None:
     def mutate(manifest: dict) -> None:
         manifest["updated_at"] = utc_now_iso()
         stage_rec = manifest.setdefault("flow", {}).setdefault(stage, {})
         stage_rec.update(fields)
 
     run.update_manifest(mutate)
-    return {"timing": watch.lap()}
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +207,23 @@ def new_run(
     (originals / "sssom").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(sssom_src, originals / "sssom" / sssom_src.name)
     path_map[sssom_config_rel] = str(originals / "sssom" / sssom_src.name)
+    if cfg.tools_schema_file:
+        schema_src = cfg._resolve(cfg.tools_schema_file)
+        schema_dest = originals / "tool-schemas" / schema_src.name
+        schema_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(schema_src, schema_dest)
+        path_map[cfg.tools_schema_file] = str(schema_dest)
+    # Two inputs sharing a basename would silently overwrite each other.
+    seen_basenames: dict[str, str] = {}
+    for dest in path_map.values():
+        base = Path(dest).name
+        if base in seen_basenames and seen_basenames[base] != dest:
+            raise typer.BadParameter(
+                f"two inputs share the filename {base!r} "
+                f"({seen_basenames[base]} and {dest}); rename one so each "
+                "retained original is distinct"
+            )
+        seen_basenames[base] = dest
     shutil.copyfile(cfg.source_path, originals / "run-config.yaml")
 
     import uuid
@@ -689,21 +702,47 @@ def scenarios(
                     FAILED, error="scenario generation exceeded the stage deadline"
                 )
 
-            # Resolve the run directory: newest child under runs/.
+            # Resolve the run directory: newest child under runs/. A
+            # non-zero exit is NOT itself failure (quarantined candidates
+            # exit non-zero by design) — but no run directory at all means
+            # the native CLI aborted, and its stderr carries the reason.
             try:
                 scenario_run_dir = _latest_scenario_run(output_dir)
                 manifest = read_run_manifest(scenario_run_dir)
                 admitted, quarantined = resolve_admitted(scenario_run_dir)
             except (FileNotFoundError, RuntimeError) as exc:
-                run.record_stage_outcome(
-                    "scenario-generator", attempt_id, {"status": FAILED, "error": str(exc)}
+                stderr_tail = ""
+                stderr_path = attempt_dir / "stderr.log"
+                if stderr_path.is_file():
+                    stderr_tail = "\n".join(
+                        stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()[-8:]
+                    )
+                detail = (
+                    f"scenario generator exited with code {proc.returncode} "
+                    "before producing a run directory"
+                    if proc.returncode != 0
+                    else str(exc)
                 )
-                return Outcome("scenarios", run_dir).finish(FAILED, error=str(exc))
+                run.record_stage_outcome(
+                    "scenario-generator",
+                    attempt_id,
+                    {"status": FAILED, "error": detail, "returncode": proc.returncode},
+                )
+                return Outcome("scenarios", run_dir).finish(
+                    FAILED,
+                    error=detail,
+                    stderr_tail=stderr_tail[-1500:],
+                    attempt=attempt_id,
+                )
 
             handoff_dir = attempt_dir / "handoff"
             receipts = handoff_receipts(run, admitted, handoff_dir)
+            # Scenarios without a sibling .feature are excluded from the
+            # admitted count with an explicit gap — never silently dropped.
+            missing_feature = [r for r in receipts if r.get("missing_feature")]
             inventory_summary = {
-                "admitted": len([r for r in admitted if r["role"] == "scenario_yaml"]),
+                "admitted": len(receipts) - len(missing_feature),
+                "admitted_missing_feature": len(missing_feature),
                 "quarantined": len(quarantined),
                 "manifest_status": manifest.get("status"),
             }
@@ -717,13 +756,19 @@ def scenarios(
             }
             run.record_stage_outcome("scenario-generator", attempt_id, record)
             run.rebuild_inventory()
-            if not receipts:
+            if len(receipts) == len(missing_feature):
+                blockers = [
+                    "zero admitted scenarios with a sibling .feature file; "
+                    "an incomplete evaluation, not a successful end-to-end result"
+                ]
+                if missing_feature:
+                    blockers[0] += (
+                        f" ({len(missing_feature)} admitted scenario(s) lack the "
+                        "adjacent .feature file the artifact loader reads)"
+                    )
                 return Outcome("scenarios", run_dir).finish(
                     BLOCKED,
-                    blockers=[
-                        "zero admitted scenarios with a sibling .feature file; "
-                        "an incomplete evaluation, not a successful end-to-end result"
-                    ],
+                    blockers=blockers,
                     inventory_summary=inventory_summary,
                 )
             _stage_record(
@@ -732,32 +777,56 @@ def scenarios(
                 receipts=str((handoff_dir / "handoff-receipts.json").relative_to(run.path)),
                 scenario_run_dir=run.rel(scenario_run_dir),
             )
-            return Outcome("scenarios", run_dir).finish(
-                COMPLETED_WITH_GAPS if quarantined else COMPLETED,
-                inventory_summary=inventory_summary,
-                admitted=[r["scenario_id"] for r in receipts],
-                handoff=run.rel(handoff_dir / "handoff-receipts.json"),
-                gaps=[
+            gaps = []
+            if quarantined:
+                gaps.append(
                     f"{len(quarantined)} quarantined candidates retained in the "
                     "native quarantine inventory"
-                ]
-                if quarantined
-                else [],
+                )
+            for r in missing_feature:
+                gaps.append(
+                    f"{r['scenario_id']}: missing sibling .feature file — "
+                    "excluded from handoff"
+                )
+            return Outcome("scenarios", run_dir).finish(
+                COMPLETED_WITH_GAPS if (quarantined or missing_feature) else COMPLETED,
+                inventory_summary=inventory_summary,
+                admitted=[r["scenario_id"] for r in receipts if not r.get("missing_feature")],
+                handoff=run.rel(handoff_dir / "handoff-receipts.json"),
+                gaps=gaps,
             )
 
 
 def _preflight_unresolved(preflight_outcome: dict) -> list[dict]:
-    """Extract unresolved fact conditions from the native preflight JSON."""
+    """Extract unresolved fact conditions from the native preflight JSON.
+
+    The native ProjectionPreflightOutcome emits ``readiness`` (with
+    ``ready`` and ``missing_facts``) and ``fact_states`` whose ``status``
+    is present|absent|unknown|stale|contradictory. Only ``present`` facts
+    are resolved; anything else required by a selected pattern is a
+    durable pending-review condition.
+    """
     unresolved = []
-    for key in ("required_facts", "facts", "unresolved"):
-        for item in preflight_outcome.get(key, []) or []:
-            if isinstance(item, dict) and item.get("status") in (
-                "absent",
-                "unknown",
-                "stale",
-                "contradictory",
-            ):
-                unresolved.append(item)
+    for item in preflight_outcome.get("fact_states", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "present":
+            unresolved.append(item)
+    readiness = preflight_outcome.get("readiness") or {}
+    if readiness and not readiness.get("ready", True):
+        # Record the native missing list too, if not already covered.
+        missing = set(readiness.get("missing_facts", []) or [])
+        seen = {
+            str((item.get("fact") or {}).get("fact_id")) for item in unresolved
+        }
+        for fact_id in sorted(missing - seen):
+            unresolved.append(
+                {
+                    "fact": {"fact_id": fact_id},
+                    "status": "missing",
+                    "source": "readiness.missing_facts",
+                }
+            )
     return unresolved
 
 
@@ -809,7 +878,9 @@ def artifacts(
         init_telemetry()
         with stage_span(run.manifest()["run_id"], "artifact-generator", attempt_id):
             # Model-free eligibility before any artifact model call.
-            eligibility_pairs = eligibility_for_batch(handoff_receipts)
+            eligibility_pairs, handoff_exclusions = eligibility_for_batch(
+                run, handoff_receipts
+            )
             atomic_write_json(
                 attempt_dir / "eligibility.json",
                 [
@@ -824,7 +895,7 @@ def artifacts(
                 ],
             )
             eligible = [(r, e) for r, e in eligibility_pairs if e.eligible]
-            excluded = [
+            excluded = handoff_exclusions + [
                 f"{e.scenario_id}: {e.reason}" for _, e in eligibility_pairs if not e.eligible
             ]
             if not eligible:
@@ -849,7 +920,7 @@ def artifacts(
                 if eligibility.adaptation:
                     scenario_paths.append(adapted_scenario(run, receipt, eligibility, adapted_dir))
                 else:
-                    scenario_paths.append(Path(receipt["yaml"]))
+                    scenario_paths.append(run.path / receipt["yaml"])
 
             output_dir = attempt_dir / "runs"
             proc, command = run_artifact_generator(
@@ -958,9 +1029,8 @@ def replay_review(
         judge = cfg.connections["judge"].sanitized()
         material = bind_material(
             run,
-            [(e["entry_path"].replace(str(run.path) + "/", ""), "replay entry (exact evaluated input)")
-             for e in entries]
-            + [(e["meta_path"].replace(str(run.path) + "/", ""), "replay metadata (parents, schema derivations)")
+            [(e["entry_path"], "replay entry (exact evaluated input)") for e in entries]
+            + [(e["meta_path"], "replay metadata (parents, schema derivations)")
                for e in entries],
         )
         request = ReviewRequest(
@@ -1085,7 +1155,13 @@ def evaluate(
             usable = [
                 r for r in results if r.outcome in ("attack_succeeded", "attack_not_demonstrated")
             ]
-            status = COMPLETED if usable else (COMPLETED_WITH_GAPS if results else BLOCKED)
+            inconclusive = [r for r in results if r.outcome == "inconclusive"]
+            if results and usable:
+                # A usable result with inconclusive siblings is
+                # completed_with_gaps, per the CLI contract.
+                status = COMPLETED_WITH_GAPS if inconclusive else COMPLETED
+            else:
+                status = COMPLETED_WITH_GAPS if results else BLOCKED
             run.record_stage_outcome(
                 "garak",
                 attempt_id,
@@ -1317,6 +1393,27 @@ def _record_review(run: RunDir, request: ReviewRequest, response_path: Path) -> 
                     "re-review is required"
                 )
     if problems:
+        # A non-resolving decision (e.g. a rejection) is still a real
+        # answer: record it in the journal with its visible notes, then
+        # keep the gate closed.
+        if response.get("decision"):
+            run.append_decision(
+                {
+                    "category": request.kind,
+                    "actor": {
+                        "label": response.get("actor", "user"),
+                        "identity_source": "review-file",
+                    },
+                    "question": request.question,
+                    "evidence": request.material,
+                    "response": response.get("decision"),
+                    "visible_notes": response.get("visible_notes", ""),
+                    "clarifications": response.get("clarifications", []),
+                    "resolution": "gate remains closed (non-resolving decision)",
+                    "scope": [entry["path"] for entry in request.material],
+                    "state": "rejected",
+                }
+            )
         return problems
     run.append_decision(
         {

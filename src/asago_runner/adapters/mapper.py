@@ -160,7 +160,7 @@ def run_mapper(
     atomic_write_json(
         attempt_dir / "attempt.json",
         {
-            "component": "{cli_placeholder}",
+            "component": "asago-policy-mapper",
             "component_commit": _component_commit(),
             "command": outcome.command,
             "argv": argv,

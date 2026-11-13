@@ -244,6 +244,41 @@ def effective_inputs(
     raise IntakeError(f"unsupported conflict decision {decision!r}")
 
 
+SEPARATOR = "\n\n"
+
+
+def _validated_parsed_text(run: RunDir, parsed_rel: str) -> Path:
+    """Resolve a reconciliation source path safely.
+
+    Only recorded parsed-text receipts under the run's derived/parsed
+    directory are acceptable sources: no absolute paths, no ``..`` escapes,
+    no arbitrary files. This is untrusted, agent-supplied input.
+    """
+    receipts_path = run.path / "derived" / "intake-receipts.json"
+    if receipts_path.is_file():
+        receipts = json.loads(receipts_path.read_text(encoding="utf-8"))
+        allowed = {
+            r.get("parsed_text_path") for r in receipts if r.get("parsed_text_path")
+        }
+    else:
+        allowed = set()
+    candidate = (run.path / parsed_rel).resolve()
+    parsed_root = (run.path / "derived" / "parsed").resolve()
+    if (
+        parsed_rel.startswith("/")
+        or ".." in Path(parsed_rel).parts
+        or candidate.parent != parsed_root
+        or (allowed and parsed_rel not in allowed)
+    ):
+        raise IntakeError(
+            f"reconciliation source {parsed_rel!r} is not a recorded parsed "
+            "text under derived/parsed; refusing to read it"
+        )
+    if not candidate.is_file():
+        raise IntakeError(f"parsed text not found: {parsed_rel}")
+    return candidate
+
+
 def build_reconciled_input(run: RunDir, reconciliation: dict) -> tuple[Path, Path]:
     """Build the reconciled effective policy from verbatim span selections.
 
@@ -252,16 +287,18 @@ def build_reconciled_input(run: RunDir, reconciliation: dict) -> tuple[Path, Pat
         [{"parsed_text": "derived/parsed/a.parsed.md", "keep_spans":
           [[start, end], ...], "purpose": "..."}]
 
-    Spans are half-open character ranges into the parsed text. Kept spans are
-    concatenated in order; omitted (losing) passages remain in the preserved
-    parsed originals. Every kept span is verified to be a verbatim slice.
+    Spans are half-open character ranges into the parsed text. Kept spans
+    are concatenated in order, separated by a blank line; omitted (losing)
+    passages remain in the preserved parsed originals. Effective ranges
+    account for the separators, and every span is re-verified as a
+    verbatim slice of its source AND of the effective text.
     """
     parts: list[str] = []
     span_records: list[dict] = []
     effective_chars = 0
     for selection in reconciliation:
         parsed_rel = selection["parsed_text"]
-        parsed_path = run.path / parsed_rel
+        parsed_path = _validated_parsed_text(run, parsed_rel)
         text = parsed_path.read_text(encoding="utf-8")
         text_sha = sha256_text(text)
         for span in selection.get("keep_spans", []):
@@ -272,6 +309,9 @@ def build_reconciled_input(run: RunDir, reconciliation: dict) -> tuple[Path, Pat
                     f"(length {len(text)})"
                 )
             slice_text = text[start:end]
+            if parts:
+                # Separator sits before every span after the first.
+                effective_chars += len(SEPARATOR)
             parts.append(slice_text)
             span_records.append(
                 {
@@ -286,58 +326,59 @@ def build_reconciled_input(run: RunDir, reconciliation: dict) -> tuple[Path, Pat
             )
             effective_chars += len(slice_text)
 
-    effective_text = "\n\n".join(parts)
+    effective_text = SEPARATOR.join(parts)
     effective_dir = run.path / "derived" / "reconciled"
     effective_dir.mkdir(parents=True, exist_ok=True)
     effective_path = effective_dir / "effective-policy.md"
     effective_path.write_text(effective_text, encoding="utf-8")
 
+    verification = verify_span_map(run, effective_text, span_records)
     span_map = {
         "schema_version": 1,
         "effective_text": run.rel(effective_path),
         "effective_text_sha256": sha256_text(effective_text),
         "effective_chars": len(effective_text),
         "spans": span_records,
-        "verification": verify_span_map(effective_text, span_records),
+        "verification": verification,
     }
     span_map_path = effective_dir / "span-map.json"
     atomic_write_json(span_map_path, span_map)
-    if not span_map["verification"]["ok"]:
+    if not verification["ok"]:
         raise IntakeError(
-            "span map verification failed: " + "; ".join(span_map["verification"]["problems"])
+            "span map verification failed: " + "; ".join(verification["problems"])
         )
     return effective_path, span_map_path
 
 
-def verify_span_map(effective_text: str, span_records: list[dict]) -> dict:
+def verify_span_map(
+    run: RunDir, effective_text: str, span_records: list[dict]
+) -> dict:
     """Model-free check: every effective passage is a verbatim slice.
 
-    Re-derives the effective text from the recorded source ranges and
-    compares digests. Approved rewrites/translations are NOT allowed here;
-    they must be separate, labelled derivations with their own review.
+    Re-reads each recorded source range from the preserved parsed original,
+    compares its digest to the recorded ``text_sha256``, and confirms the
+    recorded effective range contains exactly that slice in the effective
+    text. Approved rewrites/translations are NOT allowed here; they must be
+    separate, labelled derivations with their own review.
     """
     problems: list[str] = []
-    rebuilt = []
     for record in span_records:
-        rebuilt.append(
-            {
-                "text": record["text_sha256"],
-                "range": tuple(record["effective_range"]),
-            }
-        )
-    # Rebuild by concatenating recorded slices from the preserved originals is
-    # done by the caller; here we verify recorded effective ranges are
-    # contiguous and their concatenation hash-matches the effective text.
-    cursor = 0
-    for record in span_records:
-        start, end = record["effective_range"]
-        if start != cursor:
-            problems.append(f"effective ranges not contiguous at {start} (expected {cursor})")
-        cursor = end
-    if cursor != len(effective_text) and span_records:
-        # A separator may sit between spans; only flag when slices themselves
-        # do not reproduce the text.
-        pass
+        source = run.path / record["parsed_text"]
+        if not source.is_file():
+            problems.append(f"missing parsed source {record['parsed_text']}")
+            continue
+        text = source.read_text(encoding="utf-8")
+        start, end = record["source_range"]
+        slice_text = text[start:end]
+        if sha256_text(slice_text) != record.get("text_sha256"):
+            problems.append(f"source slice digest mismatch at {record['source_range']}")
+            continue
+        eff_start, eff_end = record["effective_range"]
+        if effective_text[eff_start:eff_end] != slice_text:
+            problems.append(
+                f"effective range [{eff_start},{eff_end}) does not contain the "
+                "recorded verbatim slice"
+            )
     if problems:
         return {"ok": False, "problems": problems}
     return {"ok": True, "problems": [], "checked_slices": len(span_records)}

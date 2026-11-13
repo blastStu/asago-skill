@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 
 from ..config import RunConfig
-from ..evidence import RunDir, Stopwatch, atomic_write_json
+from ..evidence import RunDir, atomic_write_json
 from ..hashing import sha256_file
 from ..proc import ProcResult, quote_command, run_subprocess
 
@@ -162,13 +162,13 @@ def run_generate(
         str(sssom),
         "--output-dir",
         str(output_dir),
-        "--profile",
-        str(profile),
         "--generation-mode",
         config.generation_mode,
     ]
     if config.max_scenarios_per_pattern is not None:
         argv += ["--max-scenarios-per-pattern", str(config.max_scenarios_per_pattern)]
+    if profile is not None:
+        argv += ["--profile", str(profile)]
     if qualification_facts is not None:
         argv += ["--qualification-facts", str(qualification_facts)]
     env: dict[str, str] = {}
@@ -298,7 +298,9 @@ def handoff_receipts(
         shutil.copyfile(src_yaml, dst_yaml)
         record = {
             "scenario_id": scenario_id,
-            "yaml": str(dst_yaml),
+            # Run-relative persisted paths (resolve against the run root
+            # when reading; the dispatch command records absolute argv).
+            "yaml": run.rel(dst_yaml),
             "yaml_sha256_after_copy": sha256_file(dst_yaml),
             "canonical_yaml_sha256": yaml_entry["recorded_sha256"],
         }
@@ -307,7 +309,7 @@ def handoff_receipts(
             src_feature = Path(feature_entry["path"])
             dst_feature = handoff_dir / src_feature.name
             shutil.copyfile(src_feature, dst_feature)
-            record["feature"] = str(dst_feature)
+            record["feature"] = run.rel(dst_feature)
             record["feature_sha256_after_copy"] = sha256_file(dst_feature)
             record["canonical_feature_sha256"] = feature_entry["recorded_sha256"]
         else:

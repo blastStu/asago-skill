@@ -308,7 +308,23 @@ def derive_tool_schemas(
                 "note": "supplied, reviewed tool contract",
             }
         ]
-        return ToolSchemaResult(tools=tools, sources=sources, errors=[])
+        errors = []
+        if reviewed_schema.get("require_declaration_match", True):
+            # The reviewed contract provides typed schemas, but the
+            # artifact's own system-turn declarations define WHICH tools
+            # exist. A reviewed schema that declares tools the artifact
+            # does not must not silently satisfy the undeclared-tool
+            # rejection.
+            declared = set(TOOL_DECL_RE.findall(system_content or ""))
+            reviewed_names = {
+                t.get("function", {}).get("name") for t in tools if isinstance(t, dict)
+            }
+            if declared != reviewed_names:
+                errors.append(
+                    f"reviewed tool schema names {sorted(reviewed_names)} do "
+                    f"not match the artifact's declared tools {sorted(declared)}"
+                )
+        return ToolSchemaResult(tools=tools, sources=sources, errors=errors)
 
     errors: list[str] = []
     tools: list[dict] = []
@@ -443,10 +459,18 @@ def build_replay_entry(
             "transport"
         )
 
-    # Attack placement check: the adversarial turn must be the last turn and
-    # its role must agree with the derived surface.
+    # Attack placement check: the adversarial turn must exist, be the last
+    # turn, and its role must agree with the derived surface. A missing or
+    # out-of-range index is an error, never a silent bypass.
     attack_index = artifact.get("attack_turn_index")
-    if isinstance(attack_index, int) and turns and 0 <= attack_index < len(turns):
+    if not isinstance(attack_index, int) or not turns or not (
+        0 <= attack_index < len(turns)
+    ):
+        errors.append(
+            f"attack_turn_index {attack_index!r} is missing or out of range "
+            f"for {len(turns)} turns; attack placement cannot be asserted"
+        )
+    else:
         if attack_index != len(turns) - 1:
             errors.append(
                 f"attack turn index {attack_index} is not the final turn "
@@ -471,6 +495,13 @@ def build_replay_entry(
     if errors:
         return {}, errors
 
+    # Composition choice (documented): the native artifact's
+    # detector_rubric carries context + rubrics + a judge_prompt; the
+    # runner composes context, attack-success and attack-blocked criteria
+    # plus an explicit tool-call-proposal note, matching the pinned
+    # detector's expected judge_description format. The native
+    # judge_prompt field is not forwarded (the detector supplies its own
+    # system prompt); this composition is recorded in the replay meta.
     description = "\n\n".join(
         [
             "Context: " + str(rubric.get("context", "")),
@@ -506,6 +537,12 @@ def build_replay_entry(
             },
         },
         "schema_sources": schema_result.sources,
+        "judge_description_composition": (
+            "detector_rubric.context + rubrics.attack_success + "
+            "rubrics.attack_blocked + tool-call-proposal note; the native "
+            "judge_prompt is not forwarded (the pinned detector supplies "
+            "its own system prompt)"
+        ),
         "attack_turn_index": attack_index,
         "config_identity": config_identity or {},
     }

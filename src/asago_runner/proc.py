@@ -86,8 +86,30 @@ def child_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     return env
 
 
+_SECRET_NAME_RE = None
+
+
+def _secret_values(env_extra: Mapping[str, str]) -> dict[str, str]:
+    """Only values whose variable name looks like a credential.
+
+    Model names, base URLs and other non-secret settings stay readable in
+    captured output for identity context; keys, tokens and passwords do
+    not.
+    """
+    global _SECRET_NAME_RE
+    if _SECRET_NAME_RE is None:
+        import re
+
+        _SECRET_NAME_RE = re.compile(r"(key|token|secret|password|auth)", re.I)
+    return {
+        name: value
+        for name, value in env_extra.items()
+        if _SECRET_NAME_RE.search(name) and value
+    }
+
+
 def redact_secrets(text: str, secrets: Mapping[str, str]) -> str:
-    """Replace known secret values (and long tokens) in captured output."""
+    """Replace known secret values in captured output."""
     for value in secrets.values():
         if value and len(value) >= 8:
             text = text.replace(value, "<redacted>")
@@ -162,12 +184,13 @@ def run_subprocess(
         stdout_handle.close()
         stderr_handle.close()
         # Redact secret values from captured output before it becomes evidence.
-        if env_extra:
+        secrets = _secret_values(env_extra or {})
+        if secrets:
             for path in (stdout_path, stderr_path):
                 target = Path(path)
                 if target.is_file():
                     text = target.read_text(encoding="utf-8", errors="replace")
-                    redacted = redact_secrets(text, env_extra)
+                    redacted = redact_secrets(text, secrets)
                     if redacted != text:
                         target.write_text(redacted, encoding="utf-8")
 

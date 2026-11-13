@@ -88,15 +88,33 @@ class TestReconciliation:
                 run, [{"parsed_text": rel, "keep_spans": [(0, 999)]}]
             )
 
-    def test_verify_span_map_detects_non_contiguous(self):
-        records = [
-            {"effective_range": [0, 5], "text_sha256": "x", "parsed_text": "a",
-             "source_range": [0, 5], "verbatim": True, "purpose": ""},
-            {"effective_range": [7, 9], "text_sha256": "y", "parsed_text": "a",
-             "source_range": [5, 7], "verbatim": True, "purpose": ""},
-        ]
-        result = verify_span_map("0123456789", records)
-        assert not result["ok"]
+    def test_verify_span_map_rejects_bad_ranges_and_tampering(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.hashing import sha256_text
+
+        run = RunDir.create(tmp_path / "r")
+        parsed = run.path / "derived" / "parsed" / "a.parsed.md"
+        parsed.parent.mkdir(parents=True, exist_ok=True)
+        parsed.write_text("0123456789")
+        good = {
+            "parsed_text": "derived/parsed/a.parsed.md",
+            "source_range": [0, 5],
+            "effective_range": [0, 5],
+            "text_sha256": sha256_text("01234"),
+            "verbatim": True,
+            "purpose": "",
+        }
+        # Correct record verifies.
+        assert verify_span_map(run, "01234", [good])["ok"]
+        # Tampered source digest fails.
+        tampered = dict(good, text_sha256=sha256_text("XXXXX"))
+        assert not verify_span_map(run, "01234", [tampered])["ok"]
+        # Wrong effective range fails (slice not at that position).
+        misplaced = dict(good, effective_range=[2, 7])
+        assert not verify_span_map(run, "01234", [misplaced])["ok"]
+        # Missing source fails.
+        missing = dict(good, parsed_text="derived/parsed/nope.md")
+        assert not verify_span_map(run, "01234", [missing])["ok"]
 
 
 class TestEffectiveInputs:

@@ -187,10 +187,11 @@ from the pinned mapper).
 
 ## 6. Where results live and how to read them
 
-Everything for one assessment is a self-contained run directory:
+Everything for one assessment is a self-contained run directory (by
+default under `~/.asago/runs/<label>`, outside this repository):
 
 ```
-runs/<label>/
+~/.asago/runs/<label>/
   reports/index.html      ← start here: offline overview, escaped content
   reports/summary.json    ← machine-readable funnel + verdicts
   decisions.jsonl         ← every human decision and deviation, append-only
@@ -229,8 +230,8 @@ effect.
 
 **Implemented and demonstrated live** (Phase 1): the full chain above, the
 review gates, the evidence tree, verify-run, the offline HTML report, OTel
-stage telemetry, automatic Nexus data management, and a 69-test offline
-suite including a stub-server evaluator-failure matrix. One harness
+stage telemetry, automatic Nexus data management, and the offline
+test suite including a stub-server evaluator-failure matrix. One harness
 (Claude Code) is demonstrated; the CLI contract for other harnesses is
 documented but untested — nothing claims otherwise.
 

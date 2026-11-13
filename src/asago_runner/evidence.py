@@ -202,10 +202,22 @@ class RunDir:
                     except ValueError:
                         pass
             if stale_pid is not None and not _pid_alive(stale_pid):
+                # Atomic rename-based reclaim: only ONE of several racing
+                # processes can rename the stale lock away; the others'
+                # renames fail and they simply retry acquiring (a fresh
+                # lock may now exist, which the retry honours). This
+                # avoids the unlink-vs-create race where a second writer
+                # could delete a newly-created live lock.
+                reclaim_name = f".stale-lock-{uuid.uuid4().hex[:8]}"
+                try:
+                    os.rename(lock_path, self.path / reclaim_name)
+                except FileNotFoundError:
+                    # Someone else reclaimed (or released) it: retry.
+                    return self.acquire_lock(holder)
                 logging.getLogger(__name__).warning(
                     "reclaiming stale run lock (holder gone): %s", note
                 )
-                lock_path.unlink(missing_ok=True)
+                (self.path / reclaim_name).unlink(missing_ok=True)
                 with open(self.path / "decisions.jsonl", "a", encoding="utf-8") as handle:
                     handle.write(
                         json.dumps(

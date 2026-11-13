@@ -387,10 +387,9 @@ class TestRunIsolation:
         )["flow"]
 
 
-class TestOptionalSystemInputs:
-    """Profile and qualification facts are optional user inputs."""
-
-    def _minimal_config(self, tmp_path: Path) -> Path:
+def _minimal_config(tmp_path: Path) -> Path:
+    """A config with only the required inputs (no profile/facts)."""
+    if True:
         (tmp_path / "policy").mkdir(exist_ok=True)
         (tmp_path / "policy" / "p.md").write_text(POLICY_A)
         (tmp_path / "system").mkdir(exist_ok=True)
@@ -427,13 +426,13 @@ connections:
     def test_config_without_profile_or_facts_is_valid(self, tmp_path):
         from asago_runner.config import RunConfig
 
-        cfg = RunConfig.load(self._minimal_config(tmp_path))
+        cfg = RunConfig.load(_minimal_config(tmp_path))
         assert cfg.raw["system"].get("profile_file") is None
 
     def test_preflight_notes_inference_when_profile_absent(self, tmp_path):
         env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
         run_dir = tmp_path / "run"
-        _run("new-run", "--config", str(self._minimal_config(tmp_path)),
+        _run("new-run", "--config", str(_minimal_config(tmp_path)),
              "--run-dir", str(run_dir), env_extra=env)
         code, out, _, _ = _run("preflight", str(run_dir), env_extra=env)
         assert code == 2  # needs_review, not blocked on schema checks
@@ -479,3 +478,140 @@ class TestLogCommand:
         assert proc.returncode == 0
         assert "line 49" in proc.stdout
         assert "line 40" not in proc.stdout  # only the tail
+
+
+class TestAdversarialReviewFixes:
+    """Regression tests for the 2026-11-13 adversarial review findings."""
+
+    def test_rejection_does_not_resolve_gate(self, tmp_path):
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        cfg = _write_config(tmp_path, [POLICY_A])
+        run_dir = tmp_path / "run"
+        _run("new-run", "--config", str(cfg), "--run-dir", str(run_dir), env_extra=env)
+        _run("preflight", str(run_dir), env_extra=env)  # writes the request
+        request = run_dir / "reviews" / "input-readiness.request.json"
+        req = json.loads(request.read_text())
+        assert "reject" not in req["allowed_decisions"]
+        _run("respond", str(request), "--decision", "reject",
+             "--actor", "user", "--notes", "not yet", env_extra=env)
+        code, out, _, _ = _run(
+            "preflight", str(run_dir),
+            "--response", str(run_dir / "reviews" / "input-readiness.response.json"),
+            env_extra=env,
+        )
+        assert code == 2  # gate stays closed
+        assert any("does not resolve" in p for p in out.get("review_problems", []))
+        # The rejection is recorded in the journal.
+        decisions = [
+            json.loads(l) for l in (run_dir / "decisions.jsonl").read_text().splitlines() if l.strip()
+        ]
+        assert any(d.get("state") == "rejected" for d in decisions)
+        # And the map stage is still blocked.
+        code, out, _, _ = _run("map", str(run_dir), env_extra=env)
+        assert code == 3
+
+    def test_profile_free_generate_has_no_profile_flag(self, tmp_path, monkeypatch):
+        from asago_runner.adapters import scenarios as scen
+
+        captured = {}
+
+        class FakeProc:
+            returncode, timed_out = 0, False
+
+        def fake_run_subprocess(argv, **kwargs):
+            captured["argv"] = argv
+            return FakeProc()
+
+        monkeypatch.setattr(scen, "run_subprocess", fake_run_subprocess)
+        from asago_runner.config import RunConfig
+
+        cfg = RunConfig.load(_minimal_config(tmp_path))
+        scen.run_generate(
+            cfg, tmp_path,
+            use_case_file=tmp_path / "u.md",
+            risk_extraction=tmp_path / "r.json",
+            sssom=tmp_path / "s.tsv",
+            profile=None,
+            qualification_facts=None,
+            output_dir=tmp_path / "out",
+        )
+        argv = captured["argv"]
+        assert "--profile" not in argv
+        assert "None" not in [str(a) for a in argv]
+
+    def test_facts_gate_parses_native_schema(self):
+        from asago_runner.cli import _preflight_unresolved
+
+        outcome = {
+            "readiness": {"ready": False, "missing_facts": ["capabilities.code_interpreter"]},
+            "fact_states": [
+                {"fact": {"fact_id": "capabilities.retrieval_corpus"}, "status": "present", "required": True},
+                {"fact": {"fact_id": "capabilities.feedback_loop"}, "status": "absent", "required": True},
+            ],
+        }
+        unresolved = _preflight_unresolved(outcome)
+        statuses = {(u.get("fact") or {}).get("fact_id", u.get("status")) for u in unresolved}
+        assert "capabilities.feedback_loop" in statuses
+        assert "capabilities.code_interpreter" in statuses
+        assert "capabilities.retrieval_corpus" not in statuses
+
+    def test_verify_run_design_time_scope(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.verify import verify_run
+
+        run = RunDir.create(tmp_path / "r2")
+
+        def mutate(m):
+            m["subject"] = "proposed"
+
+        run.update_manifest(mutate)
+        report = verify_run(run, None)
+        # No artifact checks fire for a design-time run; the report must
+        # not claim missing replay entries.
+        names = [c["check"] for c in report["checks"]]
+        assert "artifact.replay-entries-present" not in names
+        assert "design.subject-recorded" in names
+
+    def test_span_map_separators_are_range_correct(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.intake import build_reconciled_input
+
+        run = RunDir.create(tmp_path / "r3")
+        parsed = run.path / "derived" / "parsed" / "a.parsed.md"
+        parsed.parent.mkdir(parents=True, exist_ok=True)
+        parsed.write_text("AAAABBBBCCCCDDDD")
+        # Keep a receipt so the path validation accepts the source.
+        (run.path / "derived" / "intake-receipts.json").write_text(
+            json.dumps([{"parsed_text_path": "derived/parsed/a.parsed.md"}])
+        )
+        effective, span_map_path = build_reconciled_input(
+            run,
+            [{"parsed_text": "derived/parsed/a.parsed.md", "keep_spans": [[0, 4], [8, 12]]}],
+        )
+        effective_text = effective.read_text()
+        assert effective_text == "AAAA\n\nCCCC"
+        span_map = json.loads(span_map_path.read_text())
+        assert span_map["verification"]["ok"]
+        # The recorded effective range of span 2 contains exactly CCCC.
+        second = span_map["spans"][1]
+        start, end = second["effective_range"]
+        assert effective_text[start:end] == "CCCC"
+        assert second["effective_range"] == [6, 10]  # 4 + len(sep) = 6
+
+    def test_reconciliation_rejects_paths_outside_parsed_dir(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.intake import IntakeError, build_reconciled_input
+
+        run = RunDir.create(tmp_path / "r4")
+        secret = tmp_path / "secret.md"
+        secret.write_text("secret text here")
+        with pytest.raises(IntakeError, match="not a recorded parsed text"):
+            build_reconciled_input(
+                run,
+                [{"parsed_text": "../../secret.md", "keep_spans": [[0, 6]]}],
+            )
+        with pytest.raises(IntakeError, match="not a recorded parsed text"):
+            build_reconciled_input(
+                run,
+                [{"parsed_text": str(secret), "keep_spans": [[0, 6]]}],
+            )

@@ -158,11 +158,16 @@ def evaluate_entry(
 ) -> DispatchResult:
     """Evaluate one replay entry in its own subprocess under a deadline."""
     scenario_id = replay_entry["scenario_id"]
+
+    def _resolve(value) -> Path:
+        candidate = Path(str(value))
+        return candidate if candidate.is_absolute() else run.path / candidate
+
     dispatch_id = f"{uuid.uuid4().hex[:10]}"
     dispatch_dir = dispatch_root / f"{scenario_id}-{dispatch_id}"
     dispatch_dir.mkdir(parents=True, exist_ok=True)
 
-    entry_path = Path(replay_entry["entry_path"])
+    entry_path = _resolve(replay_entry["entry_path"])
     # Recheck the reviewed hash immediately before dispatch.
     actual_sha = sha256_file(entry_path)
     hash_ok = actual_sha == replay_entry["entry_sha256"]

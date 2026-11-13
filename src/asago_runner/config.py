@@ -145,13 +145,24 @@ class RunConfig:
             raise ConfigError("sssom.path is required")
 
         connections = _require_mapping(raw, "connections")
+        # Downstream connections are only required when the subject is
+        # built; a proposed-design run stops after the Scenario Generator.
+        # Any declared connection is still parsed (for the data-flow table
+        # and later use), it just is not required to exist.
+        required = ROLES if cfg.subject == "built" else ("mapper_llm", "scenario_llm")
         for role in ROLES:
             spec = connections.get(role)
             if not isinstance(spec, dict):
-                raise ConfigError(f"connections.{role} is required")
+                if role in required:
+                    raise ConfigError(f"connections.{role} is required")
+                continue
             for env_name in ("base_url_env", "model_env"):
                 if not spec.get(env_name):
-                    raise ConfigError(f"connections.{role}.{env_name} is required")
+                    if role in required:
+                        raise ConfigError(
+                            f"connections.{role}.{env_name} is required"
+                        )
+                    continue
             cfg.connections[role] = ConnectionSpec(
                 role=role,
                 base_url_env=spec["base_url_env"],

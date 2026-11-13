@@ -29,7 +29,7 @@ from pathlib import Path
 import yaml
 
 from ..config import RunConfig
-from ..evidence import RunDir, Stopwatch, atomic_write_json
+from ..evidence import RunDir, atomic_write_json
 from ..hashing import sha256_file
 from ..proc import ProcResult, quote_command, run_subprocess
 from ..replay import Eligibility, build_replay_entry, derive_transport
@@ -55,17 +55,28 @@ def load_scenario_yaml(path: Path) -> dict:
 
 
 def eligibility_for_batch(
-    handoff_receipts: list[dict],
-) -> list[tuple[dict, Eligibility]]:
-    """Derive eligibility for every handed-off scenario (model-free)."""
+    run, handoff_receipts: list[dict]
+) -> tuple[list[tuple[dict, Eligibility]], list[str]]:
+    """Derive eligibility for every handed-off scenario (model-free).
+
+    Returns (eligibility pairs, exclusions): scenarios without a sibling
+    .feature are excluded with an explicit reason, never silently dropped.
+    """
     results = []
+    exclusions = []
     for receipt in handoff_receipts:
-        if not receipt.get("yaml") or receipt.get("missing_feature"):
+        if not receipt.get("yaml"):
             continue
-        scenario = load_scenario_yaml(Path(receipt["yaml"]))
+        if receipt.get("missing_feature"):
+            exclusions.append(
+                f"{receipt['scenario_id']}: missing sibling .feature file — "
+                "excluded from handoff"
+            )
+            continue
+        scenario = load_scenario_yaml(run.path / receipt["yaml"])
         eligibility = derive_transport(scenario)
         results.append((receipt, eligibility))
-    return results
+    return results, exclusions
 
 
 def adapted_scenario(
@@ -248,10 +259,12 @@ def write_replay_entries(
     entries_dir.mkdir(parents=True, exist_ok=True)
     reviewed_schema = None
     if config.tools_schema_file:
-        schema_path = Path(config.tools_schema_file)
+        # Resolved through the config's path map (copied into the run at
+        # new-run), never against the process CWD.
+        schema_path = config._resolve(config.tools_schema_file)
         reviewed_schema = {
             "tools": json.loads(schema_path.read_text(encoding="utf-8")).get("tools", []),
-            "path": str(schema_path),
+            "path": run.rel(schema_path),
             "sha256": sha256_file(schema_path),
         }
     target_conn = config.connections["target"].sanitized()
@@ -270,8 +283,10 @@ def write_replay_entries(
     for candidate in candidates:
         receipt = candidate.get("receipt") or {}
         scenario_paths = {
-            "scenario_yaml": receipt.get("yaml"),
-            "scenario_feature": receipt.get("feature"),
+            "scenario_yaml": str(run.path / receipt["yaml"]) if receipt.get("yaml") else None,
+            "scenario_feature": (
+                str(run.path / receipt["feature"]) if receipt.get("feature") else None
+            ),
         }
         entry, errors = build_replay_entry(
             candidate["artifact"],
@@ -293,12 +308,29 @@ def write_replay_entries(
         entry_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         meta_path = entries_dir / f"{sid}.replay-meta.json"
         atomic_write_json(meta_path, entry["_meta"])
+        # Persist run-relative paths; readers resolve against the run root.
+        meta = entry["_meta"]
+
+        def _rel(value):
+            if not value:
+                return value
+            candidate = Path(str(value))
+            if candidate.is_absolute():
+                return run.rel(candidate)
+            return str(candidate)  # already run-relative
+
+        if isinstance(meta.get("parent_artifact"), dict):
+            meta["parent_artifact"]["path"] = _rel(meta["parent_artifact"].get("path"))
+        for key in ("scenario_yaml", "scenario_feature"):
+            node = (meta.get("parent_scenario") or {}).get(key)
+            if isinstance(node, dict) and node.get("path"):
+                node["path"] = _rel(node["path"])
         written.append(
             {
                 "scenario_id": sid,
-                "entry_path": str(entry_path),
+                "entry_path": run.rel(entry_path),
                 "entry_sha256": sha256_file(entry_path),
-                "meta_path": str(meta_path),
+                "meta_path": run.rel(meta_path),
                 "meta_sha256": sha256_file(meta_path),
                 "surface": candidate["eligibility"].surface,
                 "parent_artifact_sha256": candidate["artifact_sha256"],
