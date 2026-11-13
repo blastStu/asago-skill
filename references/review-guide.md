@@ -8,13 +8,21 @@ elapsed time or stage progression.
 
 ## 1. Input readiness (before the pipeline)
 
-The preflight request contains the data-flow table (which configured
-provider receives policies, retrieval text, system facts, attacks and
-responses), shared model roles, scope and the material hashes. Present:
+The preflight request contains the subject status (built system vs
+proposed design — which decides how far the pipeline goes), the data-flow
+table (which configured provider receives policies, retrieval text, system
+facts, attacks and responses), shared model roles, scope and the material
+hashes. Present:
 
 - the policy documents and their purpose;
+- the subject status and what it means for scope: a **built** system runs
+  the full chain including evaluation; a **proposed design** stops after
+  the Scenario Generator with the threat picture (nothing is evaluated —
+  there is nothing to attack yet);
 - the system identity record (name, boundary, sanitized endpoint identity,
-  who confirmed it and when — synthetic/unknown values labelled as such);
+  who confirmed it and when — synthetic/unknown values labelled as such;
+  for a proposed design, the intended boundary, plainly labelled as a
+  design);
 - the data-flow table and ask explicitly: *are these destinations
   acceptable for this material?* A labelled synthetic/public policy is the
   default unless the user has approved destinations for their own material;
