@@ -144,8 +144,11 @@ RUN=runs/my-assessment
 .venv/bin/asago-runner verify-run $RUN        # model-free consistency verification
 ```
 
-Full command reference: `references/cli.md`. Review semantics (including
-verbatim reconciliation for policy conflicts): `references/review-guide.md`.
+Full command reference: `references/cli.md`. **A complete annotated
+terminal session — every command, its real output, and what to do at each
+review gate — is in `references/cli-walkthrough.md`.** Review semantics
+(including verbatim reconciliation for policy conflicts):
+`references/review-guide.md`.
 
 ## 5. Configuration
 
