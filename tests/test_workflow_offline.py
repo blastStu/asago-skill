@@ -922,3 +922,56 @@ class TestConflictStepStates:
         )
         text = render_progress_checklist(progress, "r")
         assert "not needed: single policy document" in text
+
+
+class TestCanonicalPlan:
+    """The welcome plan is deterministic runner output, not agent prose."""
+
+    def test_plan_is_deterministic_and_complete(self):
+        from asago_runner.reporting import render_plan
+
+        first = render_plan("built")
+        assert first == render_plan("built")  # identical every time
+        # Every user-facing step is numbered and owner-tagged in order.
+        for marker in (
+            "[RUNNER] Check the environment",
+            "[YOUR REVIEW] Input readiness",
+            "[ASAGO COMPONENT] Parse your policies",
+            "[YOUR REVIEW] Policy conflicts",
+            "[ASAGO COMPONENT] Policy Mapper",
+            "[ASAGO COMPONENT] Scenario Generator",
+            "[ASAGO COMPONENT] Artifact Generator",
+            "[YOUR REVIEW] Test plan",
+            "[EXTERNAL: GARAK] Evaluate",
+            "[RUNNER] Report and verify",
+        ):
+            assert marker in first, marker
+        assert "Two steps always need decisions from you (2 and 8)" in first
+        assert "step 4 only when several policies disagree" in first
+        assert "Labels: [ASAGO COMPONENT] = the real Asago library" in first
+
+    def test_proposed_plan_stops_after_scenarios(self):
+        from asago_runner.reporting import render_plan
+
+        proposed = render_plan("proposed")
+        assert "[ASAGO COMPONENT] Scenario Generator" in proposed
+        assert "[ASAGO COMPONENT] Artifact Generator" not in proposed
+        assert "[EXTERNAL: GARAK]" not in proposed
+        assert "deliberately stop after the scenarios" in proposed
+        assert "One step always needs a decision from you (2)" in proposed
+
+    def test_plan_rejects_unknown_subject(self):
+        from asago_runner.reporting import render_plan
+
+        with pytest.raises(ValueError):
+            render_plan("maybe")
+
+    def test_plan_command_prints_and_exits_zero(self):
+        proc = subprocess.run(
+            [str(RUNNER), "plan", "--subject", "proposed"],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0
+        assert proc.stdout.startswith("Welcome to Asago.")
+        assert "[ASAGO COMPONENT] Policy Mapper" in proc.stdout

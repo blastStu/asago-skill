@@ -18,6 +18,7 @@ plus stage-specific fields (`attempt`, `accounting`, `inventory_summary`,
 ## Commands
 
 ```
+asago-runner plan       [--subject built|proposed]
 asago-runner new-run --config <cfg.yaml> [--run-dir DIR] [--runs-root DIR]
                      [--cache-dir DIR]
 asago-runner preflight  RUN [--response FILE] [--cache-dir DIR] [--garak-env DIR]
@@ -35,6 +36,11 @@ asago-runner log        RUN [--stage STAGE] [--lines N]
 asago-runner respond    REQUEST --decision D [--actor A] [--notes N]
                         [--clarification TEXT] [--reconciliation-file FILE]
 ```
+
+`plan` prints the canonical welcome plan (built or design-time variant). It
+needs no run directory and is deterministic: the skill quotes it verbatim
+(translating faithfully if needed) instead of composing its own plan, so
+the journey is identical for every user and session.
 
 `log` tails the latest (or named) stage attempt's log — plain text, for
 live progress updates while a long stage runs in the background.

@@ -90,13 +90,28 @@ _WORK_TAGS = {
     "review": "[YOUR REVIEW]",
 }
 
-_WORK_LEGEND = (
-    "  Labels: [ASAGO COMPONENT] = the real Asago library, unmodified · "
-    "[EXTERNAL: GARAK] =\n"
-    "          external evaluator run by the skill · [RUNNER] = "
-    "orchestration, bookkeeping and reporting only ·\n"
-    "          [YOUR REVIEW] = a decision that belongs to you."
-)
+_WORK_DESCRIPTIONS = {
+    "asago": "the real Asago library, unmodified",
+    "external": "external evaluator run by the skill",
+    "runner": "orchestration, bookkeeping and reporting only",
+    "review": "a decision that belongs to you",
+}
+
+
+def _legend_for(owners) -> str:
+    """A legend line listing only the owner tags actually in use."""
+    order = ("asago", "external", "runner", "review")
+    parts = [
+        f"{_WORK_TAGS[owner]} = {_WORK_DESCRIPTIONS[owner]}"
+        for owner in order
+        if owner in owners
+    ]
+    return "  Labels: " + " ·\n          ".join(parts)
+
+
+# The checklist always includes every owner kind, so its legend is the full
+# one (derived, not duplicated).
+_WORK_LEGEND = _legend_for(set(_WORK_TAGS))
 
 _STEP_ICONS = {
     "done": "[x]",
@@ -221,6 +236,149 @@ def derive_progress(manifest: dict, run_path: Path | None = None) -> list[dict]:
         }
         for step, label, owner in PIPELINE_STEPS
     ]
+
+
+# ---------------------------------------------------------------------------
+# The welcome plan
+#
+# This is the only place the opening plan text lives. The runner prints it
+# (`asago-runner plan`) and the skill quotes it verbatim, so the journey a
+# user sees is identical every run and cannot be paraphrased, reordered or
+# embellished by an agent.
+# ---------------------------------------------------------------------------
+
+# User-facing title + one-sentence explanation per step. Ownership comes from
+# PIPELINE_STEPS so the tags can never drift from the checklist.
+_PLAN_COPY = {
+    "preflight": (
+        "Check the environment",
+        "installs, the IBM risk data, your model connections (no model calls yet)",
+    ),
+    "input-review": (
+        "Input readiness",
+        "you approve the documents, where their text will be sent, the models "
+        "and the scope",
+    ),
+    "intake": (
+        "Parse your policies",
+        "the Policy Mapper's own parser reads and checks every document "
+        "(no model calls)",
+    ),
+    "conflict": (
+        "Policy conflicts",
+        "only if you supplied several documents that disagree: you decide "
+        "which requirement takes precedence",
+    ),
+    "map": (
+        "Policy Mapper",
+        "your policy text becomes a risk landscape with evidence pointing back "
+        "at your own words",
+    ),
+    "scenarios": (
+        "Scenario Generator",
+        "those risks, combined with your system description, become concrete "
+        "attack scenarios",
+    ),
+    "artifacts": (
+        "Artifact Generator",
+        "scenarios become validated replay conversations (it checks each one "
+        "can be represented before spending model calls)",
+    ),
+    "test-plan": (
+        "Test plan",
+        "you see the exact conversation that will be sent to your target, and "
+        "approve it",
+    ),
+    "evaluate": (
+        "Evaluate",
+        "the replay is sent to your target and judged",
+    ),
+    "report": (
+        "Report and verify",
+        "an offline HTML overview, and a consistency check of all the evidence",
+    ),
+}
+
+# Steps that only exist for a built system, plus internal steps that are not
+# part of the user-facing journey (run creation is implicit).
+_BUILT_ONLY_STEPS = {"artifacts", "test-plan", "evaluate"}
+_NOT_IN_PLAN = {"setup", "verify"}
+# Steps that always need a decision from the user.
+_ALWAYS_REVIEW_STEPS = {"input-review", "test-plan"}
+
+
+def render_plan(subject: str = "built") -> str:
+    """Render the deterministic welcome plan for a built or proposed subject."""
+    if subject not in ("built", "proposed"):
+        raise ValueError("subject must be 'built' or 'proposed'")
+    proposed = subject == "proposed"
+    steps = [
+        (step, owner)
+        for step, _label, owner in PIPELINE_STEPS
+        if step not in _NOT_IN_PLAN
+        and not (proposed and step in _BUILT_ONLY_STEPS)
+    ]
+    lines = [
+        "Welcome to Asago. Here's what we're going to do, in order — each step "
+        "shows whose work it is:",
+        "",
+    ]
+    numbers: dict[str, int] = {}
+    for index, (step, owner) in enumerate(steps, start=1):
+        numbers[step] = index
+        title, detail = _PLAN_COPY[step]
+        if proposed and step == "preflight":
+            detail = (
+                "installs, the IBM risk data, your two generation-model "
+                "connections (no model calls yet)"
+            )
+        if proposed and step == "report":
+            detail = (
+                "the threat picture for your design, with the evidence trail"
+            )
+        lines.append(f"{index}. {_WORK_TAGS[owner]} {title} — {detail}")
+    lines.append("")
+    if proposed:
+        lines.append(
+            "In short: the analysis is the Asago components'; the skill only "
+            "orchestrates and reports."
+        )
+    else:
+        lines.append(
+            "In short: the analysis is the Asago components' (and Garak's); "
+            "the skill only orchestrates, records and reports."
+        )
+    review_numbers = [
+        str(numbers[step])
+        for step in ("input-review", "test-plan")
+        if step in numbers
+    ]
+    conflict_number = numbers.get("conflict")
+    if len(review_numbers) == 2:
+        decision_line = (
+            f"Two steps always need decisions from you ("
+            f"{review_numbers[0]} and {review_numbers[1]})"
+        )
+    elif len(review_numbers) == 1:
+        decision_line = f"One step always needs a decision from you ({review_numbers[0]})"
+    else:
+        decision_line = "No step needs a decision from you"
+    if conflict_number is not None:
+        decision_line += (
+            f"; step {conflict_number} only when several policies disagree"
+        )
+    lines.append(decision_line + ". The rest run on their own.")
+    if proposed:
+        lines.append("")
+        lines.append(
+            "We deliberately stop after the scenarios: there's no built system "
+            "to attack yet, so no evaluation happens and you don't need a "
+            "target endpoint. When you do build it, we can pick up from these "
+            "same policies and run the full chain."
+        )
+    lines.append("")
+    lines.append(_legend_for({owner for _step, owner in steps}))
+    return "\n".join(lines)
 
 
 def render_progress_checklist(progress: list[dict], run_id: str | None = None) -> str:

@@ -118,6 +118,36 @@ def _stage_record(run: RunDir, stage: str, **fields) -> None:
 
 
 # ---------------------------------------------------------------------------
+# plan
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def plan(
+    subject: Annotated[
+        str,
+        typer.Option(
+            "--subject",
+            help="Which journey to print: 'built' (full chain) or 'proposed' "
+            "(design-time: stops after the Scenario Generator)",
+        ),
+    ] = "built",
+):
+    """Print the canonical welcome plan — deterministic, identical every run.
+
+    The skill must quote this verbatim (or translate it faithfully, keeping
+    the tags and order) instead of composing its own plan. No run directory
+    is needed; the plan is the same for every user and every session.
+    """
+    from .reporting import render_plan
+
+    if subject not in ("built", "proposed"):
+        raise typer.BadParameter("--subject must be 'built' or 'proposed'")
+    print(render_plan(subject))
+    return typer.Exit(code=0)
+
+
+# ---------------------------------------------------------------------------
 # new-run
 # ---------------------------------------------------------------------------
 
