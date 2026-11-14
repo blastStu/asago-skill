@@ -148,6 +148,27 @@ def plan(
 
 
 # ---------------------------------------------------------------------------
+# model-options
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="model-options")
+def model_options():
+    """Describe model connections available in this agent's environment.
+
+    Detection only: nothing is selected, no secret value is printed, and
+    compatibility is not assumed. The skill presents the result as an
+    OPTION alongside the user's own choice.
+    """
+    from .model_options import detect_model_options, render_model_options
+
+    detected = detect_model_options()
+    print(render_model_options(detected))
+    outcome = Outcome("model-options", "")
+    return outcome.finish(COMPLETED, **detected)
+
+
+# ---------------------------------------------------------------------------
 # new-run
 # ---------------------------------------------------------------------------
 

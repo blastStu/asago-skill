@@ -19,6 +19,7 @@ plus stage-specific fields (`attempt`, `accounting`, `inventory_summary`,
 
 ```
 asago-runner plan       [--subject built|proposed]
+asago-runner model-options
 asago-runner new-run --config <cfg.yaml> [--run-dir DIR] [--runs-root DIR]
                      [--cache-dir DIR]
 asago-runner preflight  RUN [--response FILE] [--cache-dir DIR] [--garak-env DIR]
@@ -36,6 +37,11 @@ asago-runner log        RUN [--stage STAGE] [--lines N]
 asago-runner respond    REQUEST --decision D [--actor A] [--notes N]
                         [--clarification TEXT] [--reconciliation-file FILE]
 ```
+
+`model-options` inspects the environment the agent is running in and
+reports any endpoint/credentials/model it exposes (secret values are never
+printed; compatibility is only assessed, never assumed). The skill offers
+the detected connection to the user as one option among several.
 
 `plan` prints the canonical welcome plan (built or design-time variant). It
 needs no run directory and is deterministic: the skill quotes it verbatim

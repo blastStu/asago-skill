@@ -82,6 +82,25 @@ independent validation. The mapper's retrieval models default to local
 CPU models (downloaded on first use); remote embedding/reranker endpoints
 can be configured under `retrieval:` in the run configuration.
 
+## Reusing the agent's own endpoint
+
+If the agent harness already has an endpoint and credentials in its
+environment, you may reuse them for Asago's roles instead of configuring a
+separate connection. Run:
+
+```bash
+.venv/bin/asago-runner model-options
+```
+
+It reports what is available (`ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` or the
+OpenAI equivalents), the host and model, and a conservative compatibility
+assessment — never a secret value. Naming those variables in the run
+configuration makes the runner resolve them at stage time, so the values
+never enter a file or the evidence. Reusing the agent's credentials bills
+usage to that account, and compatibility still has to be verified with a
+labelled smoke request before a live run (an environment variable cannot
+prove the endpoint speaks Chat Completions).
+
 ## Choosing models per role
 
 Bring whichever models you want — each role only needs to support the

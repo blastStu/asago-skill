@@ -184,12 +184,37 @@ agent-drafted in the decision journal. Never generate these files silently.
 - **Model connections** per role as environment variables named in the run
   configuration — mapper and scenario generation for every run; artifact
   generation, target and judge additionally when the subject is built.
+
+  **Before asking, detect what this agent already has.** Run:
+
+  ```bash
+  .venv/bin/asago-runner model-options
+  ```
+
+  It reports any endpoint/credentials/model the agent's own environment
+  exposes (for example `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY`), **without
+  printing secret values**, plus a conservative compatibility assessment.
+  Present the detected connection to the user with the question tool as
+  **one option among several** — for example:
+
+  - *"Use the same endpoint this agent is running on — `<host>`, model
+    `<model>`. It reuses the agent's credentials (usage bills to that
+    account), and compatibility is not proven yet: I'll verify it with a
+    labelled smoke request first."* (recommended only when its assessment is
+    *likely* or *unknown*; never when *unlikely*, e.g. api.anthropic.com)
+  - *"I'll give you a different endpoint, model and key."*
+  - *"Use a local endpoint."*
+
+  **Never assume the agent's endpoint.** The user chooses. If they pick a
+  detected option, name that candidate's environment variables in the run
+  configuration (the config records names, never values) and run the
+  labelled smoke check before the pipeline. Any OpenAI-compatible model
+  works, but each role has request-shape requirements (structured output,
+  token/temperature parameters, completion budgets) — see "Choosing models
+  per role" in `references/setup.md`.
+
   Copy `examples/config.example.yaml`, point it at their documents, and have
-  them export the env vars it names. Any OpenAI-compatible model works, but
-  each role has request-shape requirements (structured output, token/temperature
-  parameters, completion budgets) — see "Choosing models per role" in
-  `references/setup.md` before picking, and sanity-check candidates with the
-  labelled smoke checks. Ask whether concerns are missing from
+  them export the env vars it names. Ask whether concerns are missing from
   the policy; any supplement is a draft the user must verify before use.
 - **Run scope**: which risks/surfaces, generation limits, target samples.
 - **Optional — reviewed typed tool schemas**: if your system declares tools
