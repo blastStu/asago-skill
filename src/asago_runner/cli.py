@@ -163,6 +163,10 @@ def new_run(
         if target.exists():
             # Same label run before: keep it isolated, don't touch it.
             target = root / f"{name}-{utc_now_iso().replace(':', '').replace('-', '')[:15]}"
+    # Resolve before anything is recorded: a relative --run-dir would
+    # otherwise put CWD-relative paths into originals_map, which later
+    # commands (run from other directories) cannot resolve.
+    target = target.resolve()
     if target.exists():
         raise typer.BadParameter(f"{target} already exists")
     # Validate every referenced input exists before creating anything.

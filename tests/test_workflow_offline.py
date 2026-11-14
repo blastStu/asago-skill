@@ -793,3 +793,49 @@ connections:
         assert code != 0
         assert "tools_schema_file" in (err + json.dumps(out or {}))
         assert "Traceback" not in err
+
+
+def test_relative_run_dir_records_absolute_original_paths(tmp_path):
+    """A relative --run-dir must not leak CWD-relative paths into run.json.
+
+    Regression for the 2026-11-14 addendum: originals_map values are later
+    resolved against whatever CWD a command runs in, so they must be
+    absolute.
+    """
+    import os
+
+    cfg = _write_config(tmp_path, [POLICY_A])
+    work = tmp_path / "work"
+    work.mkdir()
+    proc = subprocess.run(
+        [str(RUNNER), "new-run", "--config", str(cfg), "--run-dir", "relrun"],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    run_dir = work / "relrun"
+    manifest = json.loads((run_dir / "run.json").read_text())
+    path_map = manifest["originals_map"]
+    assert path_map
+    for value in path_map.values():
+        assert os.path.isabs(value), f"originals_map value is not absolute: {value!r}"
+    # Load the copied config from a different CWD: every input must resolve.
+    from asago_runner.config import RunConfig
+    from asago_runner.evidence import RunDir
+
+    run = RunDir(run_dir)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(elsewhere)
+        cfg_from_run = RunConfig.load(
+            run.path / "originals" / "run-config.yaml",
+            path_map=run.manifest().get("originals_map"),
+        )
+        assert cfg_from_run.policy_paths()
+        for path in cfg_from_run.policy_paths():
+            assert path.is_file(), path
+    finally:
+        os.chdir(old_cwd)
