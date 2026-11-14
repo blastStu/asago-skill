@@ -35,14 +35,32 @@ class VerifyRunError(RuntimeError):
     pass
 
 
+_RUN_ANCHORS = ("stages", "reports", "originals", "reviews", "derived", "preflight")
+
+
 def _resolve(run: RunDir, path_value) -> Path:
-    """Resolve a persisted path: run-relative, with absolute fallback."""
+    """Resolve a persisted path: run-relative, with a legacy moved-run fallback.
+
+    Current runs persist run-relative paths. Older runs persisted absolute
+    paths; after the documented step of archiving a run outside the repo,
+    those absolutes point at the old location. When the absolute path no
+    longer exists, retry its run-layout suffix (``stages/...`` etc.) under
+    this run before reporting a missing file.
+    """
     if path_value is None:
         return Path("/nonexistent")
     candidate = Path(str(path_value))
-    if candidate.is_absolute():
+    if not candidate.is_absolute():
+        return run.path / candidate
+    if candidate.exists():
         return candidate
-    return run.path / candidate
+    parts = candidate.parts
+    for index, part in enumerate(parts):
+        if part in _RUN_ANCHORS:
+            trial = run.path.joinpath(*parts[index:])
+            if trial.exists():
+                return trial
+    return candidate
 
 
 def _verify_mapper_and_scenarios(

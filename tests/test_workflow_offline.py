@@ -288,7 +288,10 @@ class TestReportingAndTelemetry:
 
         run.update_manifest(mutate)
         summary = build_summary(run)
-        assert summary["details"]["policy"]["counts"]["themes"] == {"privacy": 1}
+        from asago_runner.report_page import collect_report_data
+
+        details = collect_report_data(run, summary)
+        assert details["policy"]["counts"]["themes"] == {"privacy": 1}
         render_html(run, summary)
         html = (run.path / "reports" / "index.html").read_text()
         assert "Privacy &amp; confidentiality" in html
@@ -1081,3 +1084,145 @@ class TestCanonicalPlan:
         assert proc.returncode == 0
         assert proc.stdout.startswith("Welcome to Asago.")
         assert "[ASAGO COMPONENT] Policy Mapper" in proc.stdout
+
+
+class TestReviewRegressionFixes:
+    def test_blocked_intake_is_not_shown_as_done(self, tmp_path):
+        cfg = _write_config(tmp_path, [""])
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        run_dir = tmp_path / "empty-run"
+        _run("new-run", "--config", str(cfg), "--run-dir", str(run_dir), env_extra=env)
+        code, _, _, _ = _run("intake", str(run_dir), env_extra=env)
+        assert code == 3
+        code, payload, _, _ = _run("status", str(run_dir), env_extra=env)
+        assert code == 0
+        states = {item["step"]: item["state"] for item in payload["progress"]}
+        assert states["intake"] == "blocked"
+
+    def test_report_conversation_must_exist_and_stay_in_run(self, tmp_path):
+        cfg = _write_config(tmp_path, ["# Policy\n\nData must be protected."])
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        run_dir = tmp_path / "conv-run"
+        _run("new-run", "--config", str(cfg), "--run-dir", str(run_dir), env_extra=env)
+        _run("intake", str(run_dir), env_extra=env)
+
+        code, payload, _, _ = _run(
+            "report", str(run_dir), "--conversation", "reports/missing.md", env_extra=env
+        )
+        assert code == 1 and "not found" in payload["error"]
+
+        outside = tmp_path / "outside.md"
+        outside.write_text("SESSION-MARKER")
+        code, payload, _, _ = _run(
+            "report", str(run_dir), "--conversation", str(outside), env_extra=env
+        )
+        assert code == 1 and "inside the run directory" in payload["error"]
+
+        (run_dir / "reports").mkdir(exist_ok=True)
+        (run_dir / "reports" / "conv.md").write_text("# Session\n\nSESSION-MARKER")
+        code, payload, _, _ = _run(
+            "report", str(run_dir), "--conversation", "reports/conv.md", env_extra=env
+        )
+        assert code == 0 and payload["conversation_included"] is True
+        html = (run_dir / "reports" / "index.html").read_text()
+        summary = (run_dir / "reports" / "summary.json").read_text()
+        assert "SESSION-MARKER" in html
+        assert "SESSION-MARKER" not in summary
+
+    def test_verify_resolves_legacy_absolute_paths_inside_moved_run(self, tmp_path):
+        from asago_runner.verify import _resolve
+
+        run = RunDir.create(tmp_path / "moved")
+        target = run.path / "stages" / "artifact-generator" / "0001-a" / "entry.json"
+        target.parent.mkdir(parents=True)
+        target.write_text("{}")
+        legacy = "/old/location/runs/live/stages/artifact-generator/0001-a/entry.json"
+        assert _resolve(run, legacy) == target
+
+    def test_report_uses_the_runs_custom_sssom(self, tmp_path):
+        from asago_runner.report_page import _sssom_path, collect_report_data
+
+        run = RunDir.create(tmp_path / "custom-sssom")
+        sssom = run.path / "originals" / "sssom" / "custom.tsv"
+        sssom.parent.mkdir(parents=True)
+        sssom.write_text(
+            "subject_id\tsubject_source\tpredicate_id\tobject_id\tobject_source\t"
+            "mapping_justification\n"
+            "atlas-custom\tibm-risk-atlas\tskos:exactMatch\tnist-data-privacy\t"
+            "nist-ai-rmf\texample\n"
+        )
+        attempt = run.path / "stages" / "policy-mapper" / "0001-x"
+        attempt.mkdir(parents=True)
+        (attempt / "risk-extraction.json").write_text(
+            json.dumps(
+                {"risks": [{"risk_id": "atlas-custom", "risk_name": "Custom",
+                            "taxonomy": "ibm-risk-atlas",
+                            "grounding_confidence": "high", "evidence": []}]}
+            )
+        )
+        run.update_manifest(
+            lambda m: m.update(
+                {
+                    "subject": "built",
+                    "stages": {"policy-mapper": {"status": "completed",
+                        "attempts": [{"attempt_id": "0001-x", "status": "completed"}]}},
+                    "flow": {"mapper_output": {
+                        "extraction": "stages/policy-mapper/0001-x/risk-extraction.json"}},
+                    "config_snapshot": {"raw_non_secret": {
+                        "sssom": {"path": "mappings/custom.tsv"}}},
+                    "originals_map": {
+                        "mappings/custom.tsv": "originals/sssom/custom.tsv"},
+                }
+            )
+        )
+        assert _sssom_path(run) == sssom
+        details = collect_report_data(run, {})
+        mapping = details["policy"]["theme_mapping"]
+        assert details["policy"]["counts"]["themes"] == {"privacy": 1}
+        assert mapping["sssom"] == "originals/sssom/custom.tsv"
+        assert mapping["sssom_location"] == "run"
+
+    def test_report_warns_raw_content_and_keeps_it_out_of_summary(self, tmp_path):
+        from asago_runner.reporting import build_summary, render_html
+
+        run = RunDir.create(tmp_path / "sensitive")
+        attempt = run.path / "stages" / "policy-mapper" / "0001-x"
+        attempt.mkdir(parents=True)
+        (attempt / "risk-extraction.json").write_text(
+            json.dumps({"risks": [{
+                "risk_id": "atlas-example", "risk_name": "Example",
+                "taxonomy": "ibm-risk-atlas", "grounding_confidence": "high",
+                "evidence": [{"text": "SECRET-POLICY-QUOTE", "document": "/p.pdf"}],
+            }]})
+        )
+        run.update_manifest(lambda m: m.update({
+            "subject": "built",
+            "stages": {"policy-mapper": {"status": "completed",
+                "attempts": [{"attempt_id": "0001-x", "status": "completed"}]}},
+            "flow": {"mapper_output": {
+                "extraction": "stages/policy-mapper/0001-x/risk-extraction.json"}},
+        }))
+        summary = build_summary(run)
+        render_html(run, summary)
+        html = (run.path / "reports" / "index.html").read_text()
+        summary_text = (run.path / "reports" / "summary.json").read_text()
+        assert "This report contains raw material." in html
+        assert "SECRET-POLICY-QUOTE" in html
+        assert "SECRET-POLICY-QUOTE" not in summary_text
+
+    def test_watch_follow_exits_on_needs_review(self, tmp_path):
+        run = RunDir.create(tmp_path / "review-watch")
+        run.path.joinpath("stages", "scenario-generator", "0001-r").mkdir(parents=True)
+        run.update_manifest(lambda m: m.setdefault("stages", {}).update({
+            "scenario-generator": {
+                "status": "needs_review", "latest_attempt": "0001-r",
+                "attempts": [{"attempt_id": "0001-r", "status": "needs_review"}],
+            }
+        }))
+        code, payload, stdout, _ = _run(
+            "watch", str(run.path), "--stage", "scenarios", "--follow",
+            "--interval", "1", "--timeout", "20",
+        )
+        assert code == 2
+        assert "needs_review" in stdout
+        assert payload["health"] == "needs_review"

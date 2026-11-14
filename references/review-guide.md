@@ -68,6 +68,10 @@ re-review.
 
 ## Presenting results
 
+The HTML report embeds unredacted policy text, attacks and model output, and
+the page carries that notice. Do not publish or forward it without the
+user's explicit decision; describe it as confidential when presenting it.
+
 Lead with stage status and counts using their own denominators (risks
 matched → downstream-supported → admitted scenarios → validated artifacts →
 usable evaluations; there is no single universal coverage percentage).

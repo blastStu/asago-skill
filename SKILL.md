@@ -105,8 +105,10 @@ translated it.
 
   It prints one canonical line whenever the stage's health or last
   milestone changes — `running`, `retrying`, `stalled`, `failed`, `done`,
-  with retry/error counts and the actual error (e.g.
-  `APIConnectionError: Connection error.`). **Relay every line it emits,
+  `needs_review`, with retry/error counts and the actual error (e.g.
+  `APIConnectionError: Connection error.`). It exits `--follow` on any
+  terminal state, including `needs_review` (a review request is waiting).
+  **Relay every line it emits,
   as it arrives**, and treat `retrying`, `stalled` and `failed` as
   report-now events: tell the user what happened and what you are doing
   about it before retrying. Do not filter them out as noise, do not wait
@@ -368,8 +370,16 @@ reasoning, and gaps.
 
 If you kept a transcript of this session, save it as
 `$RUN/reports/conversation.md` before running `report` (or pass
-`--conversation <path>`); the report includes it, escaped, in the run
-audit. The transcript is rendered, not copied into `summary.json`. Be explicit about: the tested surface
+`--conversation <run-relative path>`); the report includes it, escaped, in
+the run audit. The transcript must live inside the run directory — arbitrary
+paths are refused. It is rendered, not copied into `summary.json`.
+
+**The report is confidential.** It embeds unredacted policy passages,
+adversarial prompts, proposed tool calls, target responses and judge
+reasoning (plus the transcript if attached). The page says so. Do not
+publish, attach or share it outside the user's organisation without the
+user's explicit decision; treat `summary.json` and the evidence directory
+as shareable only at the same level of care. Be explicit about: the tested surface
 (a direct chat user-turn attack is labelled as such — it is not indirect
 coverage); shared model roles; inconclusive outcomes and why; what the
 evidence does and does not establish. Link the native reports and the

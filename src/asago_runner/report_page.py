@@ -212,9 +212,38 @@ def _theme_definitions() -> dict[str, Any]:
 
 
 def _sssom_path(run: RunDir) -> Path | None:
-    retained = run.path / "originals" / "sssom" / "risk_to_category.sssom.tsv"
-    if retained.is_file():
-        return retained
+    """The SSSOM mapping the run actually used, else the mapper's packaged copy.
+
+    The configured path (``sssom.path``) may use any filename; the run
+    retains it under ``originals/sssom/<name>``. Resolve through the config
+    snapshot and ``originals_map`` rather than guessing a filename, so the
+    report never silently joins against a different mapping.
+    """
+    manifest = run.manifest()
+    snapshot = (manifest.get("config_snapshot") or {}).get("raw_non_secret") or {}
+    configured = (snapshot.get("sssom") or {}).get("path")
+    candidates: list[Path] = []
+    if configured:
+        mapped = (manifest.get("originals_map") or {}).get(configured)
+        if mapped:
+            mapped_path = Path(str(mapped)).expanduser()
+            candidates.append(
+                mapped_path if mapped_path.is_absolute() else run.path / mapped_path
+            )
+        candidates.append(run.path / "originals" / "sssom" / Path(configured).name)
+        # A moved legacy run may retain the mapping at its configured name.
+        candidates.append(run.path / "originals" / configured)
+    retained_dir = run.path / "originals" / "sssom"
+    if retained_dir.is_dir():
+        retained = sorted(retained_dir.glob("*.tsv"))
+        if len(retained) == 1:
+            candidates.append(retained[0])
+        preferred = retained_dir / "risk_to_category.sssom.tsv"
+        if preferred.is_file():
+            candidates.append(preferred)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
     try:
         import asago_policy_mapper
 
@@ -228,6 +257,16 @@ def _sssom_path(run: RunDir) -> Path | None:
     except (ImportError, OSError):
         return None
     return None
+
+
+def _sssom_location(run: RunDir, sssom: Path | None) -> str | None:
+    if sssom is None:
+        return None
+    try:
+        sssom.resolve().relative_to(run.path.resolve())
+    except (ValueError, OSError):
+        return "installed mapper package"
+    return "run"
 
 
 def _load_risk_categories(path: Path | None) -> dict[str, dict[str, set[str]]]:
@@ -383,6 +422,7 @@ def _collect_policy(run: RunDir, manifest: dict) -> dict[str, Any]:
         "theme_mapping": {
             "version": definitions["version"],
             "sssom": _display_path(run, str(sssom)) if sssom else None,
+            "sssom_location": _sssom_location(run, sssom),
             "sssom_sha256": _sha256(sssom) if sssom else None,
             "provenance": (
                 "curated Asago report navigation from asago-ai/asago-policy-mapper "
@@ -1099,7 +1139,9 @@ def _render_policy(data: dict) -> str:
   </div>
   <p class="fineprint">{_esc(policy['theme_mapping']['provenance'])}. Theme mapping
   version {_esc(policy['theme_mapping']['version'])}; SSSOM
-  {_esc(policy['theme_mapping']['sssom'] or 'not available')}.
+  {_esc(policy['theme_mapping']['sssom'] or 'not available')}
+  ({_esc(policy['theme_mapping']['sssom_location'] or 'no mapping')}).
+  {'Unmatched risks fall into “Other”; the join is report navigation only.'}
   {'Extraction: <a href="../' + _esc(policy['extraction']) + '">native risk-extraction.json</a>.' if policy.get('extraction') else ''}</p>
 </div>
 """
@@ -1484,6 +1526,9 @@ def _render_audit(data: dict, summary: dict, conversation: str | None) -> str:
     if conversation:
         conversation_html = (
             "<h3 class='audit-subhead'>Conversation with the agent</h3>"
+            "<p class='fineprint'>Operator-supplied session transcript; it is "
+            "treated as untrusted text, escaped, and is not part of the "
+            "component evidence.</p>"
             "<div class='conversation-transcript'>"
             + _render_conversation(conversation)
             + "</div>"
@@ -1680,6 +1725,9 @@ main { max-width: 1600px; margin: 0 auto; padding: 40px 4vw 24px; }
   color: var(--muted); border-radius: 999px; padding: 5px 12px; font-size: 11px;
   letter-spacing: .05em; text-transform: uppercase; }
 .badge-pill.accent { border-color: var(--secondary); color: var(--secondary); }
+.sensitivity { border: 1px solid var(--amber); background: color-mix(in srgb, var(--amber) 9%, var(--card));
+  padding: 13px 18px; margin: 0 0 18px; font-size: 12.5px; color: var(--muted); }
+.sensitivity strong { color: var(--text); }
 .context-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0; border: 1px solid var(--border); background: var(--card); margin-bottom: 20px; }
 .context-strip > span { padding: 18px 22px; border-right: 1px solid var(--border);
@@ -2181,6 +2229,9 @@ def render_page(
         )
 
     generated = _fmt_ts(summary.get("generated_at"))
+    conversation_note = (
+        " and the session transcript" if conversation else ""
+    )
     document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -2217,6 +2268,13 @@ def render_page(
     <span><small>SYSTEM</small><strong>{_esc(audit.get('system_name') or 'Identity not declared')}</strong></span>
     <span><small>CONFIGURED MODELS</small><strong title="{_esc(', '.join(m['role'] + ': ' + m['model'] for m in audit.get('models', [])))}">{_esc(models_label)}</strong></span>
     <span><small>RUN</small><strong>{_esc(run_label)}</strong></span>
+  </section>
+  <section class="sensitivity" role="note">
+    <strong>This report contains raw material.</strong> It embeds unredacted
+    policy passages, adversarial prompts, proposed tool calls and target/judge
+    output{conversation_note}. Treat it as confidential and share it
+    deliberately — publishing the HTML or the evidence directory publishes that
+    content.
   </section>
   <nav class="pipeline" aria-label="Pipeline stages">{stage_html}</nav>
   {disabled_notes}

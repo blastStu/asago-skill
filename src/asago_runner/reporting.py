@@ -152,13 +152,24 @@ def derive_progress(manifest: dict, run_path: Path | None = None) -> list[dict]:
         states["input-review"] = "not_started"
 
     conflict_state = flow.get("conflict_review", {}).get("state")
-    receipts_present = (
-        run_path is not None
-        and (run_path / "derived" / "intake-receipts.json").is_file()
-    )
+    receipts = None
+    if run_path is not None:
+        receipts_path = run_path / "derived" / "intake-receipts.json"
+        if receipts_path.is_file():
+            try:
+                receipts = json.loads(receipts_path.read_text(encoding="utf-8"))
+            except ValueError:
+                receipts = None
     # Parsing is the Policy Mapper's own parser (component work); the
     # conflict decision that follows is a user review, tracked separately.
-    if "effective_inputs" in flow or conflict_state == "pending" or receipts_present:
+    # A receipt is not proof of success: an empty or unparseable document
+    # leaves a receipt with a non-"ok" status and intake exits blocked.
+    intake_failed = isinstance(receipts, list) and any(
+        (item or {}).get("status") != "ok" for item in receipts
+    )
+    if intake_failed:
+        states["intake"] = "blocked"
+    elif "effective_inputs" in flow or conflict_state == "pending" or receipts:
         states["intake"] = "done"
     else:
         states["intake"] = "not_started"
@@ -544,13 +555,6 @@ def build_summary(run: RunDir) -> dict:
 
     if manifest.get("verify_run"):
         summary["verify_run"] = manifest["verify_run"]
-
-    # Rich per-stage detail for the HTML page (risk matches, scenarios,
-    # replay entries, evaluations, and the run audit). Read from the same
-    # retained evidence; never fabricated to fill a panel.
-    from .report_page import collect_report_data
-
-    summary["details"] = collect_report_data(run, summary)
     return summary
 
 
@@ -566,10 +570,10 @@ def render_html(
     """
     from .report_page import collect_report_data, render_page
 
-    data = summary.get("details")
-    if not isinstance(data, dict) or not data.get("audit"):
-        data = collect_report_data(run, summary)
-        summary["details"] = data
+    # Raw policy passages, attacks and model output belong in the HTML page
+    # only. summary.json stays a machine-readable view of statuses, counts
+    # and paths, so it can be read or shared without carrying the material.
+    data = collect_report_data(run, summary)
     out = render_page(run, summary, data, conversation=conversation)
     atomic_write_json(run.path / "reports" / "summary.json", summary)
     return out

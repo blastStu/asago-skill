@@ -51,9 +51,11 @@ the journey is identical for every user and session.
 
 `watch` classifies a running (or finished) stage deterministically:
 `running`, `retrying`, `stalled` (log silent past the threshold), `failed`,
-`blocked`, `done`, with elapsed time, retry/error counts, the last
-milestone and the extracted error (e.g. `APIConnectionError: Connection
-error.`). `--follow` prints a line on every change and exits when the stage
+`blocked`, `needs_review`, `done`, with elapsed time, retry/error counts,
+the last milestone and the extracted error (e.g.
+`APIConnectionError: Connection error.`). Garak attempts are summarised
+from their per-scenario logs and dispatch receipts, not only an
+attempt-level log. `--follow` prints a line on every change and exits when the stage
 reaches a terminal state — run it in the background beside a long stage and
 relay each line; retrying/stalled/failed are report-now events, not noise.
 
@@ -75,10 +77,17 @@ mapper's curated report navigation data (adopted from PR #79 at a pinned
 commit) joined through the same SSSOM mappings the mapper uses. Stages a
 design-time run does not reach are rendered disabled with their reason.
 `--conversation <path>` (or `reports/conversation.md` in the run) embeds a
-transcript of the session that ran the skill in the audit tab; it is
-escaped, and the transcript text is not written into `summary.json`. The
-page loads nothing from the network; its one inline script only switches
-tabs, filters findings and toggles light/dark.
+transcript of the session that ran the skill in the audit tab. The path must
+resolve inside the run directory (arbitrary files are refused); an explicit
+path that does not exist fails rather than being ignored. The transcript is
+escaped and is not written into `summary.json`.
+
+The HTML embeds unredacted policy passages, attacks, tool calls, responses
+and judge output, and says so at the top; treat it as confidential.
+`summary.json` deliberately keeps only statuses, counts, paths and short
+verdict reasons, not the raw material. The page loads nothing from the
+network; its one inline script only switches tabs, filters findings and
+toggles light/dark.
 
 `RUN` is the run directory created by `new-run`. **Runs are isolated**: by
 default `new-run` creates the run under `~/.asago/runs/<label>` (override

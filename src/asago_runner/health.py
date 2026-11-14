@@ -64,13 +64,25 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 def attempt_logs(attempt_dir: Path) -> list[Path]:
-    """The log files worth summarising for an attempt."""
-    paths = []
+    """The log files worth summarising for an attempt.
+
+    Most stages write ``stderr.log`` at the attempt root. Garak writes one
+    directory per dispatched artifact (``<scenario>-<id>/``) with its own
+    ``stderr.log``, so those child logs are included too. Sorted oldest to
+    newest so the newest failure is the last thing the error extractor sees.
+    """
+    paths: list[Path] = []
     stderr = attempt_dir / "stderr.log"
     if stderr.is_file():
         paths.append(stderr)
+    for child in sorted(attempt_dir.iterdir()):
+        if child.is_dir():
+            child_stderr = child / "stderr.log"
+            if child_stderr.is_file():
+                paths.append(child_stderr)
     for pipeline_log in sorted((attempt_dir / "runs").rglob("pipeline.log")):
         paths.append(pipeline_log)
+    paths.sort(key=lambda path: path.stat().st_mtime)
     return paths
 
 
@@ -132,14 +144,26 @@ def summarize_attempt(
         # No log yet: fall back to the dispatch start, else the directory.
         newest_mtime = attempt_dir.stat().st_mtime
 
-    dispatch_path = attempt_dir / "dispatch.json"
-    dispatch = (
-        json.loads(dispatch_path.read_text(encoding="utf-8"))
-        if dispatch_path.is_file()
-        else {}
-    )
-    pid = dispatch.get("pid")
-    alive = _pid_alive(pid)
+    # A dispatch receipt normally sits at the attempt root. Garak instead
+    # writes one receipt per scenario directory, so consider both: alive if
+    # any recorded child is alive, and use the earliest recorded start.
+    dispatch_paths = [attempt_dir / "dispatch.json"]
+    dispatch_paths += sorted(attempt_dir.glob("*/dispatch.json"))
+    dispatches = []
+    root_dispatch: dict[str, Any] = {}
+    for path in dispatch_paths:
+        if path.is_file():
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            dispatches.append(record)
+            if path == dispatch_paths[0]:
+                root_dispatch = record
+    dispatch = root_dispatch
+    pids = [item.get("pid") for item in dispatches if item.get("pid")]
+    pid = dispatch.get("pid") or (pids[0] if pids else None)
+    alive = any(_pid_alive(pid_value) for pid_value in pids)
 
     manifest = run.manifest()
     attempts_record = (manifest.get("stages", {}).get(stage_name, {}) or {}).get(
@@ -172,7 +196,10 @@ def summarize_attempt(
 
     now = time.time()
     last_log_age = max(0.0, now - newest_mtime)
-    started = dispatch.get("started_at")
+    started = dispatch.get("started_at") or min(
+        (item.get("started_at") for item in dispatches if item.get("started_at")),
+        default=None,
+    )
     elapsed = None
     if started:
         try:
@@ -192,7 +219,7 @@ def summarize_attempt(
             health = "retrying"
         else:
             health = "running"
-    elif recorded_status in ("failed", "blocked"):
+    elif recorded_status in ("failed", "blocked", "needs_review"):
         health = recorded_status
     elif recorded_status in ("completed", "completed_with_gaps"):
         health = "done"
@@ -216,6 +243,10 @@ def summarize_attempt(
             f"attempt {attempt_dir.name}; a retry creates a new attempt."
         ),
         "blocked": f"The stage is blocked: {last_error or 'see the outcome blockers'}.",
+        "needs_review": (
+            "The stage is waiting for a review decision (exit 2). Tell the user "
+            "and present the request; do not keep polling."
+        ),
         "done": "Finished; show the outcome and the progress checklist.",
         "stopped": "The process is no longer running but the attempt has no outcome record.",
         "unknown": "No dispatch receipt; inspect the attempt directory.",

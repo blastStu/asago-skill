@@ -1447,7 +1447,7 @@ def watch(
         outcome = Outcome("watch", run_dir)
         return outcome.finish(COMPLETED, **summary)
 
-    terminal = {"failed", "blocked", "done", "stopped"}
+    terminal = {"failed", "blocked", "needs_review", "done", "stopped"}
     start = time.monotonic()
     last_key = None
     summary: dict = {}
@@ -1473,7 +1473,12 @@ def watch(
             break
         time.sleep(max(5, interval))
     outcome = Outcome("watch", run_dir)
-    status = FAILED if summary.get("health") in ("failed", "blocked", "stopped") else COMPLETED
+    if summary.get("health") == "needs_review":
+        status = NEEDS_REVIEW
+    elif summary.get("health") in ("failed", "blocked", "stopped"):
+        status = FAILED
+    else:
+        status = COMPLETED
     return outcome.finish(status, **summary)
 
 
@@ -1505,15 +1510,43 @@ def report(
     with run.locked(f"report pid={__import__('os').getpid()}"):
         summary = build_summary(run)
         transcript = None
-        source = (
-            Path(conversation).expanduser()
-            if conversation
-            else run.path / "reports" / "conversation.md"
-        )
-        if source.is_file():
+        source: Path | None = None
+        if conversation:
+            candidate = Path(conversation).expanduser()
+            if not candidate.is_absolute():
+                candidate = run.path / candidate
+            resolved = candidate.resolve()
+            run_root = run.path.resolve()
+            try:
+                resolved.relative_to(run_root)
+            except ValueError:
+                return Outcome("report", run_dir).finish(
+                    FAILED,
+                    error=(
+                        "conversation transcript must be inside the run directory "
+                        f"({run_root}); copy it there first (for example "
+                        "reports/conversation.md). Reading arbitrary paths would "
+                        "embed unrelated files in the report."
+                    ),
+                )
+            if not resolved.is_file():
+                return Outcome("report", run_dir).finish(
+                    FAILED,
+                    error=f"conversation transcript not found: {resolved}",
+                )
+            source = resolved
+        else:
+            default = (run.path / "reports" / "conversation.md").resolve()
+            try:
+                default.relative_to(run.path.resolve())
+            except ValueError:
+                default = None
+            if default is not None and default.is_file():
+                source = default
+        if source is not None:
             transcript = source.read_text(encoding="utf-8", errors="replace")
             summary["conversation"] = {
-                "source": source.name,
+                "source": run.rel(source),
                 "sha256": sha256_file(source),
             }
         html_path = render_html(run, summary, transcript)

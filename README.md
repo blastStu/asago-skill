@@ -112,6 +112,9 @@ libraries need, in this order:
    tab showing the decision journal, reviews and stage attempts. Stages that
    a design-time run does not reach are shown disabled, not omitted. The
    agent walks you through what the evidence does and does not establish.
+   The report embeds raw policy text, attacks and model responses — it is
+   confidential and should only be shared deliberately; `summary.json` keeps
+   counts, statuses and paths without the raw passages.
 
 Any time you want to check state, ask ("what's the status of the run?") —
 the agent calls `asago-runner status` and reads it back to you.

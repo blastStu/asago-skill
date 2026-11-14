@@ -191,3 +191,66 @@ class TestScenarioFailureParsing:
         ]
         assert "system.profile_file" in payload["how_to"]
         assert "not reused" in payload["how_to"]
+
+
+class TestGarakAndReviewHealth:
+    def test_garak_child_dispatch_logs_are_read(self, tmp_path):
+        run = RunDir.create(tmp_path / "garak")
+        child = run.path / "stages" / "garak" / "0001-x" / "scenario-a"
+        child.mkdir(parents=True)
+        (child / "stderr.log").write_text(FAILED_LOG)
+        (child / "dispatch.json").write_text(
+            json.dumps(
+                {
+                    "pid": 999999,
+                    "status": "exited",
+                    "started_at": "2026-11-14T10:00:00+00:00",
+                }
+            )
+        )
+        run.update_manifest(
+            lambda m: m.setdefault("stages", {}).setdefault("garak", {}).update(
+                {
+                    "status": "failed",
+                    "latest_attempt": "0001-x",
+                    "attempts": [{"attempt_id": "0001-x", "status": "failed"}],
+                }
+            )
+        )
+        summary = summarize_attempt(run, "evaluate")
+        assert summary["line_count"] > 0
+        assert summary["health"] == "failed"
+        assert summary["last_error"] == "openai.APIConnectionError: Connection error."
+
+    def test_garak_alive_child_with_retries_is_retrying(self, tmp_path):
+        run = RunDir.create(tmp_path / "garak2")
+        child = run.path / "stages" / "garak" / "0001-y" / "scenario-b"
+        child.mkdir(parents=True)
+        (child / "stderr.log").write_text(
+            "chunk grounded\nRetrying request in 0.7 seconds (retry 2 of 2)\n"
+        )
+        (child / "dispatch.json").write_text(
+            json.dumps({"pid": os.getpid(), "status": "running"})
+        )
+        summary = summarize_attempt(run, "evaluate")
+        assert summary["running"] is True
+        assert summary["health"] == "retrying"
+
+    def test_needs_review_is_terminal_health(self, tmp_path):
+        run = RunDir.create(tmp_path / "review")
+        attempt = run.path / "stages" / "scenario-generator" / "0001-r"
+        attempt.mkdir(parents=True)
+        (attempt / "stderr.log").write_text("projection readiness failed\n")
+        run.update_manifest(
+            lambda m: m.setdefault("stages", {}).setdefault(
+                "scenario-generator", {}
+            ).update(
+                {
+                    "status": "needs_review",
+                    "latest_attempt": "0001-r",
+                    "attempts": [{"attempt_id": "0001-r", "status": "needs_review"}],
+                }
+            )
+        )
+        summary = summarize_attempt(run, "scenarios")
+        assert summary["health"] == "needs_review"
