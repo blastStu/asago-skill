@@ -182,9 +182,18 @@ free-text like file paths. `references/review-guide.md` has the full
 checklist and question phrasing. **Default to what the user supplies, and
 only that**: the capability profile and qualification facts are OPTIONAL —
 if the user doesn't provide them, leave them out of the configuration and
-the Scenario Generator runs its own Stage-1 inference (an inferred-only run
-can finish with zero scenarios; that is an honest outcome, never a reason
-to fabricate context). You may OFFER to draft a profile or facts file from
+the Scenario Generator runs its own Stage-1 inference. Be explicit about
+the limit: an inferred profile cannot provide Stage-2 inventory evidence
+(`external_integrations`, `trust_boundaries`), so if the selected risks
+need those categories the projection **aborts after the mapper has run**
+and the scenarios stage returns a `needs-review` request for a profile.
+For a design-time run, recommend supplying a reviewed profile up front —
+you may draft one from the use case, but show it in full, get approval, and
+record it as agent-drafted. If the user declines a profile for a design-time
+run, ask one explicit question before the mapper spends tokens: *"Without a
+profile, generation may stop after the mapper if your risks need
+external-integration or trust-boundary evidence. Continue anyway, or supply
+a profile first?"* — and record their choice. You may OFFER to draft a profile or facts file from
 what the user has told you — but if you do, show the draft in full, get
 explicit user approval before it enters the run, and record it as
 agent-drafted in the decision journal. Never generate these files silently.

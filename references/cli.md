@@ -92,6 +92,11 @@ Scenario Generator's native contract rejects ungrounded extractions).
    hash bindings. Material change invalidates the binding; verify-run
    flags stale approvals.
 
+A `profile-required` request is written (not a gate) when the Scenario
+Generator's projection aborts because the inferred profile lacks Stage-2
+architecture evidence: it names the missing resource categories and how to
+supply a reviewed profile for a new run.
+
 For the policy-conflict review, `--decision` is one of `no-conflict`,
 `precedence-unchanged-input` (context only; the mapper applies nothing),
 or `reconcile` with `--reconciliation-file` holding verbatim span

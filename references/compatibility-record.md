@@ -101,6 +101,15 @@ attempts:
   can only lower them). Two full attempts quarantined 10/10 candidates
   with `CompletionLengthError`. a reasoning-heavy gateway model also ran the mapper ~4-5× slower
   than a fast gateway model and exceeded a 3600 s stage deadline near completion.
+- **Inferred-only scenario runs can abort projection**: without a reviewed
+  `system.profile_file`, the Scenario Generator's Stage-1 inference
+  produces an `inferred_partial` profile that cannot supply Stage-2
+  inventory evidence (`external_integrations`, `trust_boundaries`). If the
+  selected risks require those categories, native projection readiness
+  aborts with exit 1 *after* the mapper has run. The runner turns that
+  specific abort into a `needs-review` outcome with the missing categories
+  and a `profile-required` request (not a bare failure); preflight warns
+  beforehand. Supply a reviewed profile to avoid the wasted mapper spend.
 - **Scenario role resolution (recorded deviation)**: with a reasoning-heavy gateway model
   length-incompatible, a fast gateway model/a fast gateway model/a fast gateway model schema-rejected
   (OpenAI-strict `maxProperties`), and every gateway Gemini model

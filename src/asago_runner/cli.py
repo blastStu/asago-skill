@@ -390,6 +390,7 @@ def preflight(
             summary={
                 "subject": cfg.subject,
                 "subject_note": report.get("subject_note"),
+                "advisories": report.get("advisories", []),
                 "data_flow": report["data_flow"],
                 "shared_model_roles": report["shared_model_roles"],
                 "scope": report.get("scope"),
@@ -629,6 +630,9 @@ def scenarios(
     """Projection preflight + taxonomy/risk scenario generation."""
     from .adapters.scenarios import (
         filter_risk_extraction,
+        parse_filter_failures,
+        parse_readiness_failure,
+        write_profile_required_request,
         handoff_receipts,
         read_run_manifest,
         resolve_admitted,
@@ -780,19 +784,16 @@ def scenarios(
                 manifest = read_run_manifest(scenario_run_dir)
                 admitted, quarantined = resolve_admitted(scenario_run_dir)
             except (FileNotFoundError, RuntimeError) as exc:
-                stderr_tail = ""
+                stderr_text = ""
                 stderr_path = attempt_dir / "stderr.log"
                 if stderr_path.is_file():
-                    stderr_tail = "\n".join(
-                        stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()[-8:]
+                    stderr_text = stderr_path.read_text(
+                        encoding="utf-8", errors="replace"
                     )
+                stderr_tail = "\n".join(stderr_text.splitlines()[-8:])
                 from .health import extract_error_summary
 
-                error_summary = None
-                if stderr_path.is_file():
-                    error_summary = extract_error_summary(
-                        stderr_path.read_text(encoding="utf-8", errors="replace")
-                    )
+                error_summary = extract_error_summary(stderr_text) if stderr_text else None
                 detail = (
                     f"scenario generator exited with code {proc.returncode} "
                     "before producing a run directory"
@@ -800,6 +801,47 @@ def scenarios(
                     if proc.returncode != 0
                     else str(exc)
                 )
+
+                # A projection-readiness abort without a reviewed profile is
+                # not a generic failure: the operator must supply a profile
+                # (the inferred-only profile cannot provide Stage-2 inventory
+                # evidence). Present it as a durable review request with the
+                # missing categories, not a bare 'failed'.
+                missing_categories = parse_readiness_failure(stderr_text)
+                if missing_categories and profile is None:
+                    request_path = write_profile_required_request(
+                        run, attempt_id, missing_categories
+                    )
+                    blockers = [
+                        "projection readiness requires architecture evidence "
+                        f"missing from the inferred profile: {', '.join(missing_categories)}",
+                        "supply a reviewed capability profile (system.profile_file) "
+                        "and start a new run; see reviews/profile-required.request.json",
+                    ]
+                    run.record_stage_outcome(
+                        "scenario-generator",
+                        attempt_id,
+                        {
+                            "status": NEEDS_REVIEW,
+                            "error": detail,
+                            "returncode": proc.returncode,
+                            "missing_resource_categories": missing_categories,
+                        },
+                    )
+                    _stage_record(run, "profile_required", state="pending")
+                    return Outcome("scenarios", run_dir).finish(
+                        NEEDS_REVIEW,
+                        blockers=blockers,
+                        review={
+                            "kind": "profile-required",
+                            "request": run.rel(request_path),
+                            "missing_resource_categories": missing_categories,
+                        },
+                        error_detail=error_summary,
+                        stderr_tail=stderr_tail[-1500:],
+                        attempt=attempt_id,
+                    )
+
                 run.record_stage_outcome(
                     "scenario-generator",
                     attempt_id,
@@ -807,7 +849,9 @@ def scenarios(
                 )
                 return Outcome("scenarios", run_dir).finish(
                     FAILED,
+                    blockers=[detail],
                     error=detail,
+                    error_detail=error_summary,
                     stderr_tail=stderr_tail[-1500:],
                     attempt=attempt_id,
                 )
@@ -865,6 +909,18 @@ def scenarios(
                     f"{r['scenario_id']}: missing sibling .feature file — "
                     "excluded from handoff"
                 )
+            # Filter-call failures are quarantine-level (a seed's candidate
+            # is dropped), not fatal — surface them distinctly in the outcome
+            # instead of leaving them buried in stderr.
+            stderr_path = attempt_dir / "stderr.log"
+            if stderr_path.is_file():
+                for seed in parse_filter_failures(
+                    stderr_path.read_text(encoding="utf-8", errors="replace")
+                ):
+                    gaps.append(
+                        f"{seed}: filter call failed (completion length exceeded) "
+                        "— candidate quarantined, not fatal"
+                    )
             return Outcome("scenarios", run_dir).finish(
                 COMPLETED_WITH_GAPS if (quarantined or missing_feature) else COMPLETED,
                 inventory_summary=inventory_summary,

@@ -19,6 +19,7 @@ original is retained untouched.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,66 @@ from ..hashing import sha256_file
 from ..proc import ProcResult, quote_command, run_subprocess
 
 SCENARIO_CLI = "asago-scenario-generator"
+
+# The native projection readiness aborts when an inferred-only profile has
+# no Stage-2 inventory evidence for required categories. This is not a
+# transient failure: the operator must supply a reviewed capability profile.
+_READINESS_FAILURE_RE = re.compile(
+    r"Projection readiness failed before projection:\s*missing resource "
+    r"categories ([^;\n]+)",
+    re.I,
+)
+# Non-fatal: a seed's filter call exceeded the component's hardcoded
+# completion cap; that candidate is quarantined, the run continues.
+_FILTER_FAILURE_RE = re.compile(r"Filter protocol failure for seed (\S+)", re.I)
+
+
+def parse_readiness_failure(stderr_text: str) -> list[str] | None:
+    """Missing resource categories from a native projection-readiness abort."""
+    match = _READINESS_FAILURE_RE.search(stderr_text or "")
+    if not match:
+        return None
+    categories = [
+        item.strip()
+        for item in re.split(r",|\band\b", match.group(1))
+        if item.strip()
+    ]
+    return categories or None
+
+
+def parse_filter_failures(stderr_text: str) -> list[str]:
+    """Seeds whose filter call failed (quarantine-level, not fatal)."""
+    return sorted(set(_FILTER_FAILURE_RE.findall(stderr_text or "")))
+
+
+def write_profile_required_request(
+    run: RunDir, attempt_id: str, missing_categories: list[str]
+) -> Path:
+    """Write the durable 'supply a reviewed profile' review request."""
+    request_path = run.path / "reviews" / "profile-required.request.json"
+    atomic_write_json(
+        request_path,
+        {
+            "kind": "profile-required",
+            "attempt": attempt_id,
+            "missing_resource_categories": missing_categories,
+            "question": (
+                "The Scenario Generator's projection needs architecture "
+                "evidence the inferred profile cannot provide. Supply a "
+                "reviewed capability profile (system.profile_file) and start "
+                "a new run with the same inputs and scope."
+            ),
+            "how_to": (
+                "Draft a capability profile from the use case (entry points "
+                "with typed ingress zones, tool inventory, external "
+                "integrations and trust boundaries), show it to the user for "
+                "approval, add it as system.profile_file, and run a new "
+                "assessment. Runs are isolated: this run's mapper output is "
+                "not reused."
+            ),
+        },
+    )
+    return request_path
 
 
 @dataclass

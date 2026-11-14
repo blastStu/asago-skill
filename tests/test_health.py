@@ -138,3 +138,56 @@ class TestWatchCommand:
         payload = json.loads(proc.stdout.strip().splitlines()[-1])
         assert payload["health"] == "failed"
         assert "APIConnectionError" in payload["last_error"]
+
+
+class TestScenarioFailureParsing:
+    """Projection-readiness aborts and filter failures are classified."""
+
+    READINESS = (
+        "Pipeline failed: Projection readiness failed before projection: "
+        "missing resource categories external_integrations, trust_boundaries; "
+        "supply a reviewed architecture with '--profile'."
+    )
+
+    FILTER = (
+        "WARNING Filter call failed for seed AP-T10-01 (attempt 1):\n"
+        "ERROR   Filter protocol failure for seed AP-T10-01 after retry\n"
+        "ERROR   Filter protocol failure for seed AP-T15-01 after retry\n"
+    )
+
+    def test_readiness_failure_categories(self):
+        from asago_runner.adapters.scenarios import parse_readiness_failure
+
+        assert parse_readiness_failure(self.READINESS) == [
+            "external_integrations",
+            "trust_boundaries",
+        ]
+
+    def test_readiness_failure_absent_in_normal_log(self):
+        from asago_runner.adapters.scenarios import parse_readiness_failure
+
+        assert parse_readiness_failure("chunk 3/13 grounded\n") is None
+
+    def test_filter_failures_are_listed_once(self):
+        from asago_runner.adapters.scenarios import parse_filter_failures
+
+        assert parse_filter_failures(self.FILTER) == ["AP-T10-01", "AP-T15-01"]
+
+    def test_profile_required_request_is_durable_and_actionable(self, tmp_path):
+        from asago_runner.adapters.scenarios import (
+            write_profile_required_request,
+        )
+
+        run = RunDir.create(tmp_path / "run")
+        path = write_profile_required_request(
+            run, "0001-ac0ece", ["external_integrations", "trust_boundaries"]
+        )
+        assert path.is_file()
+        payload = json.loads(path.read_text())
+        assert payload["kind"] == "profile-required"
+        assert payload["missing_resource_categories"] == [
+            "external_integrations",
+            "trust_boundaries",
+        ]
+        assert "system.profile_file" in payload["how_to"]
+        assert "not reused" in payload["how_to"]

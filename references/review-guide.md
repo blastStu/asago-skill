@@ -28,6 +28,11 @@ hashes. Present:
   default unless the user has approved destinations for their own material;
 - the scope (risk selection, generation limits, target samples, deadlines)
   and the native retry limitations;
+- any **advisories** from preflight (the request's `advisories` list). In
+  particular, when no capability profile is supplied, say plainly that an
+  inferred-only run can abort projection after the mapper has run if the
+  risks need `external_integrations`/`trust_boundaries`, and recommend
+  supplying a reviewed profile up front;
 - anything absent from the policy the user cares about — a supplement is a
   separately preserved draft until the user verifies it.
 

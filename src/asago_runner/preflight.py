@@ -227,10 +227,14 @@ def run_preflight(
         _check(
             "scenario.profile-optional-absent",
             True,
-            "no capability profile supplied: the Scenario Generator's own "
-            "Stage-1 inference will run (an inferred-only run can finish "
-            "with zero scenarios when required architecture evidence is "
-            "unavailable)",
+            "no capability profile supplied: the Scenario Generator's "
+            "Stage-1 inference will run, but an inferred profile cannot "
+            "provide Stage-2 inventory evidence (external_integrations, "
+            "trust_boundaries). If the selected risks require those "
+            "categories, projection aborts after the mapper has run and the "
+            "scenarios stage returns a needs-review request asking for a "
+            "reviewed profile. Supply a reviewed profile up front to avoid "
+            "that cost — especially for design-time runs.",
             blocker=False,
         )
     facts_config = config.raw.get("system", {}).get("qualification_facts_file")
@@ -324,10 +328,18 @@ def run_preflight(
     )
 
     blockers = [c for c in _CHECKS if c["blocker"]]
+    advisories = [
+        c["detail"]
+        for c in _CHECKS
+        if c["check"]
+        in ("scenario.profile-optional-absent", "scenario.facts-optional-absent")
+        and c.get("detail")
+    ]
     report = {
         "ok": not blockers,
         "checks": _CHECKS,
         "blockers": blockers,
+        "advisories": advisories,
         "subject": config.subject,
         "subject_note": (
             "design-time run: the subject is a proposed design; the pipeline "
