@@ -412,6 +412,7 @@ def intake(
                 paths, mode, rec = effective_inputs(run, receipts, conflict_response)
             except IntakeError as exc:
                 return Outcome("intake", run_dir).finish(BLOCKED, blockers=[str(exc)])
+            _stage_record(run, "conflict_review", state="resolved")
             _stage_record(
                 run,
                 "effective_inputs",

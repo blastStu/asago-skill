@@ -75,26 +75,28 @@ covering both is fine until then.)
 >    model connections (no model calls yet)
 > 2. **[YOUR REVIEW] Input readiness** — you approve the documents, where
 >    their text will be sent, the models and the scope
-> 3. **[ASAGO COMPONENT] Assess your policies** — the Policy Mapper's own
->    parser reads every document and checks it; if you supplied several,
->    you resolve any conflicts between them
-> 4. **[ASAGO COMPONENT] Policy Mapper** — your policy text becomes a risk
+> 3. **[ASAGO COMPONENT] Parse your policies** — the Policy Mapper's own
+>    parser reads and checks every document (no model calls)
+> 4. **[YOUR REVIEW] Policy conflicts** — only if you supplied several
+>    documents that disagree: you decide which requirement takes precedence
+> 5. **[ASAGO COMPONENT] Policy Mapper** — your policy text becomes a risk
 >    landscape with evidence pointing back at your own words
-> 5. **[ASAGO COMPONENT] Scenario Generator** — those risks, combined with
+> 6. **[ASAGO COMPONENT] Scenario Generator** — those risks, combined with
 >    your system description, become concrete attack scenarios
-> 6. **[ASAGO COMPONENT] Artifact Generator** — scenarios become validated
+> 7. **[ASAGO COMPONENT] Artifact Generator** — scenarios become validated
 >    replay conversations (it checks each one can be represented before
 >    spending model calls)
-> 7. **[YOUR REVIEW] Test plan** — you see the *exact* conversation that
+> 8. **[YOUR REVIEW] Test plan** — you see the *exact* conversation that
 >    will be sent to your target, and approve it
-> 8. **[EXTERNAL: GARAK] Evaluate** — the replay is sent to your target and
+> 9. **[EXTERNAL: GARAK] Evaluate** — the replay is sent to your target and
 >    judged
-> 9. **[RUNNER] Report and verify** — an offline HTML overview, and a
+> 10. **[RUNNER] Report and verify** — an offline HTML overview, and a
 >    consistency check of all the evidence
 >
 > In short: **the analysis is the Asago components' (and Garak's); the
-> skill only orchestrates, records and reports.** Two steps need decisions
-> from you (2 and 7); the rest run on their own.
+> skill only orchestrates, records and reports.** Two steps always need
+> decisions from you (2 and 8); step 4 does too, but only when several
+> policies disagree. The rest run on their own.
 > Shall we start with the environment check?
 
 For a **proposed design** (the user has not built the agent yet), the plan
@@ -106,14 +108,16 @@ is shorter and ends differently:
 > 1. **[RUNNER] Check the environment** — installs, the IBM risk data, your
 >    two generation-model connections (no model calls yet)
 > 2. **[YOUR REVIEW] Input readiness** — documents, destinations, scope
-> 3. **[ASAGO COMPONENT] Assess your policies** — the Policy Mapper's own
->    parser reads every document; conflict review if several
-> 4. **[ASAGO COMPONENT] Policy Mapper** — your policy becomes a risk
+> 3. **[ASAGO COMPONENT] Parse your policies** — the Policy Mapper's own
+>    parser reads and checks every document
+> 4. **[YOUR REVIEW] Policy conflicts** — only if several documents
+>    disagree: you decide precedence
+> 5. **[ASAGO COMPONENT] Policy Mapper** — your policy becomes a risk
 >    landscape
-> 5. **[ASAGO COMPONENT] Scenario Generator** — the risks plus your design
+> 6. **[ASAGO COMPONENT] Scenario Generator** — the risks plus your design
 >    description become the concrete attacks your agent would face if
 >    built as described
-> 6. **[RUNNER] Report and verify** — the threat picture for your design,
+> 7. **[RUNNER] Report and verify** — the threat picture for your design,
 >    with the evidence trail
 >
 > In short: **the analysis is the Asago components'; the skill only
@@ -151,7 +155,8 @@ Asago run progress (run 4b6f65df5ab1):
   [x] [RUNNER]          setup        Create the run (config snapshot, originals copied)
   [x] [RUNNER]          preflight    Environment check — no model calls (...)
   [!] [YOUR REVIEW]     input-review Input readiness (...)  ← waiting on you
-  [ ] [ASAGO COMPONENT] intake       Policy intake — native parse receipts (...)
+  [ ] [ASAGO COMPONENT] intake       Parse every policy — the Policy Mapper's parser (...)
+  [–] [YOUR REVIEW]     conflict     Policy conflicts — only when several documents disagree (...)
   [ ] [ASAGO COMPONENT] map          Policy text → taxonomy risks (...)
   ...
   Labels: [ASAGO COMPONENT] = the real Asago library, unmodified · ...

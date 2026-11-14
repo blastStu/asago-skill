@@ -859,7 +859,7 @@ class TestWorkOwnershipLabels:
         assert owners["evaluate"] == "external"
         for step in ("setup", "preflight", "report", "verify"):
             assert owners[step] == "runner", step
-        for step in ("input-review", "test-plan"):
+        for step in ("input-review", "conflict", "test-plan"):
             assert owners[step] == "review", step
 
         text = render_progress_checklist(progress, "r")
@@ -888,3 +888,37 @@ class TestWorkOwnershipLabels:
         assert "[ASAGO COMPONENT] Policy Mapper" in html
         assert "[EXTERNAL: GARAK] evaluator" in html
         assert "Whose work" in html
+
+
+class TestConflictStepStates:
+    """Parsing is the component's; the conflict decision is the user's."""
+
+    def _states(self, flow):
+        from asago_runner.reporting import derive_progress
+
+        progress = derive_progress({"run_id": "r", "subject": "built", "flow": flow, "stages": {}})
+        return {p["step"]: p["state"] for p in progress}
+
+    def test_single_document_conflict_not_needed(self):
+        states = self._states({"effective_inputs": {"mode": "originals"}})
+        assert states["conflict"] == "not_applicable"
+
+    def test_multi_document_conflict_pending(self):
+        states = self._states({"conflict_review": {"state": "pending"}})
+        assert states["intake"] == "done"  # parsing finished
+        assert states["conflict"] == "needs_review"
+
+    def test_multi_document_conflict_resolved(self):
+        states = self._states(
+            {"conflict_review": {"state": "resolved"}, "effective_inputs": {"mode": "reconciled"}}
+        )
+        assert states["conflict"] == "done"
+
+    def test_render_shows_not_applicable_reason(self):
+        from asago_runner.reporting import derive_progress, render_progress_checklist
+
+        progress = derive_progress(
+            {"run_id": "r", "subject": "built", "flow": {"effective_inputs": {}}, "stages": {}}
+        )
+        text = render_progress_checklist(progress, "r")
+        assert "not needed: single policy document" in text

@@ -46,7 +46,18 @@ PIPELINE_STEPS = (
         "Input readiness — documents, data-flow destinations, models, scope",
         "review",
     ),
-    ("intake", "Policy intake — native parse receipts; conflict review if several policies", "asago"),
+    (
+        "intake",
+        "Parse every policy — the Policy Mapper's parser converts and checks each "
+        "document (no model calls)",
+        "asago",
+    ),
+    (
+        "conflict",
+        "Policy conflicts — only when several documents disagree; you decide "
+        "which requirement takes precedence",
+        "review",
+    ),
     ("map", "Policy text → taxonomy risks with evidence spans", "asago"),
     (
         "scenarios",
@@ -94,6 +105,7 @@ _STEP_ICONS = {
     "failed": "[X]",
     "blocked": "[!]",
     "skipped": "[-]",
+    "not_applicable": "[–]",
     "not_started": "[ ]",
 }
 
@@ -124,12 +136,26 @@ def derive_progress(manifest: dict, run_path: Path | None = None) -> list[dict]:
         states["preflight"] = "not_started"
         states["input-review"] = "not_started"
 
-    if flow.get("effective_inputs"):
+    conflict_state = flow.get("conflict_review", {}).get("state")
+    receipts_present = (
+        run_path is not None
+        and (run_path / "derived" / "intake-receipts.json").is_file()
+    )
+    # Parsing is the Policy Mapper's own parser (component work); the
+    # conflict decision that follows is a user review, tracked separately.
+    if "effective_inputs" in flow or conflict_state == "pending" or receipts_present:
         states["intake"] = "done"
-    elif flow.get("conflict_review", {}).get("state") == "pending":
-        states["intake"] = "needs_review"
     else:
         states["intake"] = "not_started"
+    if conflict_state == "pending":
+        states["conflict"] = "needs_review"
+    elif conflict_state == "resolved":
+        states["conflict"] = "done"
+    elif "effective_inputs" in flow:
+        # Single-document runs never create a conflict review.
+        states["conflict"] = "not_applicable"
+    else:
+        states["conflict"] = "not_started"
 
     def stage_state(name: str, flow_key: str) -> str:
         record = stages.get(name, {})
@@ -222,6 +248,8 @@ def render_progress_checklist(progress: list[dict], run_id: str | None = None) -
                 "  (design-time run: the proposed agent is not built — "
                 "stops after the Scenario Generator by design)"
             )
+        elif item["state"] == "not_applicable":
+            note = "  (not needed: single policy document)"
         lines.append(f"  {icon} {tag:<17} {item['step']:<12} {item['label']}{note}")
     remaining = sum(1 for i in progress if i["state"] == "not_started")
     lines.append(f"  {remaining} step(s) remaining.")
