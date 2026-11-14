@@ -55,9 +55,12 @@ the journey is identical for every user and session.
 the last milestone and the extracted error (e.g.
 `APIConnectionError: Connection error.`). Garak attempts are summarised
 from their per-scenario logs and dispatch receipts, not only an
-attempt-level log. `--follow` prints a line on every change and exits when the stage
-reaches a terminal state — run it in the background beside a long stage and
-relay each line; retrying/stalled/failed are report-now events, not noise.
+attempt-level log. Without `--follow`, one call returns the current canonical line — an agent
+whose harness does not stream background-task output should call it every
+~20–30 s while a long stage runs and relay the result. `--follow` prints a
+line on every change and exits when the stage reaches a terminal state — use
+it only where the harness delivers that output live. Retrying/stalled/failed
+are report-now events, not noise.
 
 `log` tails the latest (or named) stage attempt's log — plain text, for
 live progress updates while a long stage runs in the background.

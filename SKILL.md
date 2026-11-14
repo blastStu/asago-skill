@@ -96,25 +96,31 @@ translated it.
   artifacts, evaluate) take minutes and can hit transient connection
   errors, retry storms or stalls that the component does not announce.
 
-  Run the stage with your harness's background-execution facility, then
-  immediately run the runner's health watcher in the background next to it:
+  Run the stage with your harness's background-execution facility. Then
+  keep a **foreground progress loop** — do not launch a background watcher
+  and simply wait for it to notify you: many harnesses only reveal a
+  background task's output when the task ends, so the user sees silence.
 
   ```bash
-  .venv/bin/asago-runner watch <run> --follow --interval 30
+  .venv/bin/asago-runner watch <run> --stage <stage>
   ```
 
-  It prints one canonical line whenever the stage's health or last
-  milestone changes — `running`, `retrying`, `stalled`, `failed`, `done`,
-  `needs_review`, with retry/error counts and the actual error (e.g.
-  `APIConnectionError: Connection error.`). It exits `--follow` on any
-  terminal state, including `needs_review` (a review request is waiting).
-  **Relay every line it emits,
-  as it arrives**, and treat `retrying`, `stalled` and `failed` as
-  report-now events: tell the user what happened and what you are doing
-  about it before retrying. Do not filter them out as noise, do not wait
-  for the stage to finish, and do not wait for the user to ask what is
-  happening. If your harness notifies you that the background stage task
-  exited, relay its outcome immediately.
+  Call that every ~20–30 seconds while the stage runs; each call returns
+  one canonical line — health (`running`, `retrying`, `stalled`, `failed`,
+  `done`, `needs_review`), elapsed time, retry/error counts and the last
+  meaningful milestone (for example a grounding-chunk count). **Relay each
+  line to the user immediately** and say what it means. Treat `retrying`,
+  `stalled` and `failed` as report-now events. Do not wait for the stage to
+  finish and do not wait for the user to ask what is happening.
+
+  If your harness *does* stream background-task output to you (a monitor or
+  message facility), you may instead run
+  `.venv/bin/asago-runner watch <run> --stage <stage> --follow --interval 30`
+  and relay each line as it arrives; `--follow` exits on any terminal state,
+  including `needs_review`. Either way, the user must get an update within
+  roughly 30 seconds of the stage starting, and regularly thereafter. If
+  your harness notifies you that the background stage task exited, relay its
+  outcome immediately.
 - *After:* the outcome in plain language (not raw JSON): what was found,
   what was excluded and why, then show the checklist and say what's next.
 
