@@ -91,13 +91,28 @@ translated it.
   this took ~15 minutes in our test run"). Never phrase a component's
   analysis as something you did ("I found 21 risks" → "the Policy Mapper
   matched 21 risks; I've recorded them here").
-- *During:* long stages are **never silent**. Model-calling stages (map,
-  scenarios, artifacts, evaluate) take minutes. Run them with your
-  harness's background-execution facility so you stay responsive, then
-  every ~30 seconds call `.venv/bin/asago-runner log <run>` and give the
-  user a one-line update summarizing the tail (chunk progress, model calls,
-  tokens) — not the raw log. Say so if a stage fails, and what you are
-  doing about it, before retrying.
+- *During:* long stages are **never silent**, and **failures are never left
+  for the user to discover**. Model-calling stages (map, scenarios,
+  artifacts, evaluate) take minutes and can hit transient connection
+  errors, retry storms or stalls that the component does not announce.
+
+  Run the stage with your harness's background-execution facility, then
+  immediately run the runner's health watcher in the background next to it:
+
+  ```bash
+  .venv/bin/asago-runner watch <run> --follow --interval 30
+  ```
+
+  It prints one canonical line whenever the stage's health or last
+  milestone changes — `running`, `retrying`, `stalled`, `failed`, `done`,
+  with retry/error counts and the actual error (e.g.
+  `APIConnectionError: Connection error.`). **Relay every line it emits,
+  as it arrives**, and treat `retrying`, `stalled` and `failed` as
+  report-now events: tell the user what happened and what you are doing
+  about it before retrying. Do not filter them out as noise, do not wait
+  for the stage to finish, and do not wait for the user to ask what is
+  happening. If your harness notifies you that the background stage task
+  exited, relay its outcome immediately.
 - *After:* the outcome in plain language (not raw JSON): what was found,
   what was excluded and why, then show the checklist and say what's next.
 

@@ -612,6 +612,7 @@ def map(
             result.status,
             blockers=result.blockers,
             gaps=result.gaps,
+            error_detail=result.error_detail,
             **payload,
         )
 
@@ -785,9 +786,17 @@ def scenarios(
                     stderr_tail = "\n".join(
                         stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()[-8:]
                     )
+                from .health import extract_error_summary
+
+                error_summary = None
+                if stderr_path.is_file():
+                    error_summary = extract_error_summary(
+                        stderr_path.read_text(encoding="utf-8", errors="replace")
+                    )
                 detail = (
                     f"scenario generator exited with code {proc.returncode} "
                     "before producing a run directory"
+                    + (f": {error_summary}" if error_summary else "")
                     if proc.returncode != 0
                     else str(exc)
                 )
@@ -1315,6 +1324,101 @@ def log(
             for line in tail:
                 print(line[:240])
     return typer.Exit(code=0)
+
+
+# ---------------------------------------------------------------------------
+# watch (deterministic stage health for progress updates)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def watch(
+    run_dir: Annotated[str, typer.Argument(help="Run directory")],
+    stage: Annotated[
+        str,
+        typer.Option(
+            help="Stage to inspect (policy-mapper|map, scenario-generator|"
+            "scenarios, artifact-generator|artifacts, garak|evaluate). "
+            "Default: the most recently modified attempt.",
+        ),
+    ] = "",
+    stall_seconds: Annotated[
+        int,
+        typer.Option(help="Seconds without log activity before reporting 'stalled'"),
+    ] = 300,
+    json_only: Annotated[
+        bool, typer.Option("--json", help="Print only the final JSON line")
+    ] = False,
+    follow: Annotated[
+        bool,
+        typer.Option(
+            "--follow",
+            help="Keep polling and print a line whenever health or the last "
+            "milestone changes; exit when the stage reaches a terminal state.",
+        ),
+    ] = False,
+    interval: Annotated[
+        int, typer.Option(help="Seconds between polls with --follow")
+    ] = 30,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option(
+            "--timeout", help="Give up following after this many seconds"
+        ),
+    ] = 3600,
+):
+    """Classify a running (or finished) stage's health deterministically.
+
+    Prints a one-line human summary plus a machine-readable JSON line:
+    health (running/retrying/stalled/failed/done), elapsed time, log
+    silence, retry and error counts, the last milestone and the last error.
+
+    With --follow it prints a line on every change and exits when the stage
+    finishes — so a background watcher reports failures on its own. Relay
+    every change immediately (especially retrying/stalled/failed); never
+    wait for the user to ask.
+    """
+    import time
+
+    from .health import render_health, summarize_attempt
+
+    run = _load_run(run_dir)
+
+    if not follow:
+        summary = summarize_attempt(run, stage or None, stall_seconds=stall_seconds)
+        if not json_only:
+            print(render_health(summary))
+        outcome = Outcome("watch", run_dir)
+        return outcome.finish(COMPLETED, **summary)
+
+    terminal = {"failed", "blocked", "done", "stopped"}
+    start = time.monotonic()
+    last_key = None
+    summary: dict = {}
+    while True:
+        summary = summarize_attempt(run, stage or None, stall_seconds=stall_seconds)
+        key = (
+            summary.get("health"),
+            summary.get("last_milestone"),
+            summary.get("retry_count"),
+            summary.get("error_count"),
+        )
+        if key != last_key:
+            print(render_health(summary), flush=True)
+            last_key = key
+        if summary.get("health") in terminal:
+            break
+        if time.monotonic() - start >= timeout_seconds:
+            print(
+                f"[asago-runner] watch: still {summary.get('health')} after "
+                f"{timeout_seconds}s; stopping the watcher (the stage keeps running)",
+                flush=True,
+            )
+            break
+        time.sleep(max(5, interval))
+    outcome = Outcome("watch", run_dir)
+    status = FAILED if summary.get("health") in ("failed", "blocked", "stopped") else COMPLETED
+    return outcome.finish(status, **summary)
 
 
 # ---------------------------------------------------------------------------

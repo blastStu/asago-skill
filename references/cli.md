@@ -34,6 +34,7 @@ asago-runner report     RUN
 asago-runner verify-run RUN
 asago-runner status     RUN
 asago-runner log        RUN [--stage STAGE] [--lines N]
+asago-runner watch      RUN [--stage STAGE] [--follow] [--interval N] [--json]
 asago-runner respond    REQUEST --decision D [--actor A] [--notes N]
                         [--clarification TEXT] [--reconciliation-file FILE]
 ```
@@ -47,6 +48,14 @@ the detected connection to the user as one option among several.
 needs no run directory and is deterministic: the skill quotes it verbatim
 (translating faithfully if needed) instead of composing its own plan, so
 the journey is identical for every user and session.
+
+`watch` classifies a running (or finished) stage deterministically:
+`running`, `retrying`, `stalled` (log silent past the threshold), `failed`,
+`blocked`, `done`, with elapsed time, retry/error counts, the last
+milestone and the extracted error (e.g. `APIConnectionError: Connection
+error.`). `--follow` prints a line on every change and exits when the stage
+reaches a terminal state — run it in the background beside a long stage and
+relay each line; retrying/stalled/failed are report-now events, not noise.
 
 `log` tails the latest (or named) stage attempt's log — plain text, for
 live progress updates while a long stage runs in the background.

@@ -34,6 +34,7 @@ class MapperOutcome:
     accounting: dict = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
     gaps: list[str] = field(default_factory=list)
+    error_detail: str | None = None
     review: dict | None = None
 
 
@@ -169,6 +170,7 @@ def run_mapper(
             "timed_out": proc.timed_out,
             "termination_reason": proc.termination_reason,
             "env_names": proc.env_names,
+            "error_detail": None,
             "no_llm_mode": no_llm,
         },
     )
@@ -182,8 +184,27 @@ def run_mapper(
         )
         return outcome
     if proc.returncode != 0:
+        # Surface the actual cause, not just "see stderr.log": the last
+        # traceback line is what the user needs to act on.
+        from ..health import extract_error_summary
+
+        stderr_path = attempt_dir / "stderr.log"
+        summary = (
+            extract_error_summary(
+                stderr_path.read_text(encoding="utf-8", errors="replace")
+            )
+            if stderr_path.is_file()
+            else None
+        )
+        outcome.error_detail = summary
         outcome.blockers.append(
-            f"mapper exited with code {proc.returncode}; see stderr.log"
+            f"mapper exited with code {proc.returncode}"
+            + (f": {summary}" if summary else "")
+            + "; see stderr.log"
+        )
+        atomic_write_json(
+            attempt_dir / "error.json",
+            {"returncode": proc.returncode, "summary": summary},
         )
         return outcome
     if not extraction_path.is_file():

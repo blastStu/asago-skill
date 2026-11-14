@@ -161,6 +161,15 @@ def run_subprocess(
         stderr=stderr_handle,
         start_new_session=True,  # own process group for group cleanup
     )
+    if dispatch_record_path is not None:
+        import json
+
+        record_path = Path(dispatch_record_path)
+        if record_path.is_file():
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["pid"] = proc.pid
+            record["status"] = "running"
+            atomic_write_json(record_path, record)
     timed_out = False
     termination_reason: str | None = None
     try:
