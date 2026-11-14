@@ -68,55 +68,70 @@ question or setup. Do not gather inputs first and plan later; the plan is
 the greeting. (Adapt it once you know built-vs-proposed; a generic version
 covering both is fine until then.)
 
-> Welcome to Asago. Here's what we're going to do, in order:
-> 1. **Check the environment** — installs, the IBM risk data, your model
->    connections (no model calls yet)
-> 2. **Your review: input readiness** — you approve the documents, where
->    their text will be sent, the models and the scope
-> 3. **Assess your policies** — every document is parsed and checked; if you
->    supplied several, you resolve any conflicts between them
-> 4. **Run the Policy Mapper** — your policy text becomes a risk landscape
->    with evidence pointing back at your own words
-> 5. **Generate scenarios** — those risks, combined with your system
->    description, become concrete attack scenarios
-> 6. **Generate test artifacts** — scenarios become validated replay
->    conversations (we check each one can actually be represented before
->    spending model calls)
-> 7. **Your review: the test plan** — you see the *exact* conversation that
->    will be sent to your target, and approve it
-> 8. **Evaluate** — the replay is sent to your target and judged
-> 9. **Report and verify** — an offline HTML overview, and a consistency
->    check of all the evidence
+> Welcome to Asago. Here's what we're going to do, in order — each step
+> shows whose work it is:
 >
-> Two steps need decisions from you (2 and 7); the rest run on their own.
+> 1. **[RUNNER] Check the environment** — installs, the IBM risk data, your
+>    model connections (no model calls yet)
+> 2. **[YOUR REVIEW] Input readiness** — you approve the documents, where
+>    their text will be sent, the models and the scope
+> 3. **[ASAGO COMPONENT] Assess your policies** — the Policy Mapper's own
+>    parser reads every document and checks it; if you supplied several,
+>    you resolve any conflicts between them
+> 4. **[ASAGO COMPONENT] Policy Mapper** — your policy text becomes a risk
+>    landscape with evidence pointing back at your own words
+> 5. **[ASAGO COMPONENT] Scenario Generator** — those risks, combined with
+>    your system description, become concrete attack scenarios
+> 6. **[ASAGO COMPONENT] Artifact Generator** — scenarios become validated
+>    replay conversations (it checks each one can be represented before
+>    spending model calls)
+> 7. **[YOUR REVIEW] Test plan** — you see the *exact* conversation that
+>    will be sent to your target, and approve it
+> 8. **[EXTERNAL: GARAK] Evaluate** — the replay is sent to your target and
+>    judged
+> 9. **[RUNNER] Report and verify** — an offline HTML overview, and a
+>    consistency check of all the evidence
+>
+> In short: **the analysis is the Asago components' (and Garak's); the
+> skill only orchestrates, records and reports.** Two steps need decisions
+> from you (2 and 7); the rest run on their own.
 > Shall we start with the environment check?
 
 For a **proposed design** (the user has not built the agent yet), the plan
 is shorter and ends differently:
 
 > Welcome to Asago. Since we're assessing a proposed design, here's the
-> journey:
-> 1. **Check the environment** — installs, the IBM risk data, your two
->    generation-model connections (no model calls yet)
-> 2. **Your review: input readiness** — documents, destinations, scope
-> 3. **Assess your policies** — parse checks; conflict review if several
-> 4. **Run the Policy Mapper** — your policy becomes a risk landscape
-> 5. **Generate scenarios** — the risks plus your design description become
->    the concrete attacks your agent would face if built as described
-> 6. **Report and verify** — the threat picture for your design, with the
->    evidence trail
+> journey — each step shows whose work it is:
 >
-> We deliberately stop after the scenarios: there's no built system to
-> attack yet, so no evaluation happens and you don't need a target
-> endpoint. When you do build it, we can pick up from these same policies
-> and run the full chain.
+> 1. **[RUNNER] Check the environment** — installs, the IBM risk data, your
+>    two generation-model connections (no model calls yet)
+> 2. **[YOUR REVIEW] Input readiness** — documents, destinations, scope
+> 3. **[ASAGO COMPONENT] Assess your policies** — the Policy Mapper's own
+>    parser reads every document; conflict review if several
+> 4. **[ASAGO COMPONENT] Policy Mapper** — your policy becomes a risk
+>    landscape
+> 5. **[ASAGO COMPONENT] Scenario Generator** — the risks plus your design
+>    description become the concrete attacks your agent would face if
+>    built as described
+> 6. **[RUNNER] Report and verify** — the threat picture for your design,
+>    with the evidence trail
+>
+> In short: **the analysis is the Asago components'; the skill only
+> orchestrates and reports.** We deliberately stop after the scenarios:
+> there's no built system to attack yet, so no evaluation happens and you
+> don't need a target endpoint. When you do build it, we can pick up from
+> these same policies and run the full chain.
 
 Adapt the wording to the user and their language; keep the structure.
 
-**2. Narrate every step — before, during, after.**
-- *Before:* what is about to run, what it does in one sentence, and roughly
-  how long it takes ("the mapper makes hundreds of small model calls — this
-  took ~15 minutes in our test run").
+**2. Narrate every step — before, during, after — saying whose work it is.**
+- *Before:* what is about to run, **whose work it is** (name the tag:
+  `[ASAGO COMPONENT]`, `[EXTERNAL: GARAK]`, `[RUNNER]`, `[YOUR REVIEW]`),
+  what it does in one sentence, and roughly how long it takes ("the
+  `[ASAGO COMPONENT]` Policy Mapper makes hundreds of small model calls —
+  this took ~15 minutes in our test run"). Never phrase a component's
+  analysis as something you did ("I found 21 risks" → "the Policy Mapper
+  matched 21 risks; I've recorded them here").
 - *During:* long stages are **never silent**. Model-calling stages (map,
   scenarios, artifacts, evaluate) take minutes. Run them with your
   harness's background-execution facility so you stay responsive, then
@@ -133,14 +148,16 @@ verbatim — it is the canonical checklist:
 
 ```
 Asago run progress (run 4b6f65df5ab1):
-  [x] setup         Create the run (config snapshot, originals copied)
-  [x] preflight     Environment check — no model calls (...)
-  [!] input-review  YOUR REVIEW: input readiness (...)  ← waiting on you
-  [ ] map           Policy Mapper — policy text → taxonomy risks (...)
+  [x] [RUNNER]          setup        Create the run (config snapshot, originals copied)
+  [x] [RUNNER]          preflight    Environment check — no model calls (...)
+  [!] [YOUR REVIEW]     input-review Input readiness (...)  ← waiting on you
+  [ ] [ASAGO COMPONENT] intake       Policy intake — native parse receipts (...)
+  [ ] [ASAGO COMPONENT] map          Policy text → taxonomy risks (...)
   ...
-  4 step(s) remaining.
+  Labels: [ASAGO COMPONENT] = the real Asago library, unmodified · ...
 ```
 
+Quote the labels legend with it the first time (the block includes it).
 Then one line on what happens next. When a step shows *completed with
 gaps*, say what the gaps mean in that stage's own terms (e.g. "the mapper
 also found risks in taxonomies the next stage can't consume — they're

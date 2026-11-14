@@ -39,6 +39,14 @@ asago-runner respond    REQUEST --decision D [--actor A] [--notes N]
 `log` tails the latest (or named) stage attempt's log — plain text, for
 live progress updates while a long stage runs in the background.
 
+`status` prints a progress checklist before its JSON line. Every step is
+tagged with whose work it is — `[ASAGO COMPONENT]` for the real,
+unmodified Asago libraries, `[EXTERNAL: GARAK]` for the external
+evaluator, `[RUNNER]` for orchestration/bookkeeping/reporting, and
+`[YOUR REVIEW]` for user decisions. The same distinction appears in the
+offline HTML report's "Whose work" column. Agents should quote the
+checklist (including its legend) when narrating progress.
+
 `RUN` is the run directory created by `new-run`. **Runs are isolated**: by
 default `new-run` creates the run under `~/.asago/runs/<label>` (override
 with `--runs-root` or `$ASAGO_RUNNER_RUNS_ROOT`, or place one explicitly

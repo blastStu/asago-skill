@@ -839,3 +839,52 @@ def test_relative_run_dir_records_absolute_original_paths(tmp_path):
             assert path.is_file(), path
     finally:
         os.chdir(old_cwd)
+
+
+class TestWorkOwnershipLabels:
+    """Users must always be able to tell whose work each step is."""
+
+    def test_progress_steps_carry_owner_and_labels(self):
+        from asago_runner.reporting import (
+            derive_progress,
+            render_progress_checklist,
+        )
+
+        manifest = {"run_id": "r", "subject": "built", "flow": {}, "stages": {}}
+        progress = derive_progress(manifest)
+        owners = {p["step"]: p["owner"] for p in progress}
+        # Asago library work is labelled as such.
+        for step in ("intake", "map", "scenarios", "artifacts"):
+            assert owners[step] == "asago", step
+        assert owners["evaluate"] == "external"
+        for step in ("setup", "preflight", "report", "verify"):
+            assert owners[step] == "runner", step
+        for step in ("input-review", "test-plan"):
+            assert owners[step] == "review", step
+
+        text = render_progress_checklist(progress, "r")
+        assert "[ASAGO COMPONENT]" in text
+        assert "[EXTERNAL: GARAK]" in text
+        assert "[RUNNER]" in text
+        assert "[YOUR REVIEW]" in text
+        assert "the real Asago library, unmodified" in text
+
+    def test_html_report_names_whose_work(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.reporting import build_summary, render_html
+
+        run = RunDir.create(tmp_path / "run")
+
+        def mutate(m):
+            m["stages"] = {
+                "policy-mapper": {"status": "completed", "latest_attempt": "a"},
+                "garak": {"status": "completed", "latest_attempt": "b"},
+            }
+
+        run.update_manifest(mutate)
+        summary = build_summary(run)
+        render_html(run, summary)
+        html = (run.path / "reports" / "index.html").read_text()
+        assert "[ASAGO COMPONENT] Policy Mapper" in html
+        assert "[EXTERNAL: GARAK] evaluator" in html
+        assert "Whose work" in html

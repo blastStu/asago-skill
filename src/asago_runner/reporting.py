@@ -28,18 +28,63 @@ OUTCOME_LABELS = {
 
 # The canonical, ordered journey. `status` derives a per-step state so agents
 # and CLI users always render the same checklist instead of improvising.
+# (step, label, owner). The owner is shown in the checklist and the welcome
+# plan so users can always tell whose work a step is:
+#   asago     — a real, unmodified Asago component
+#   external  — an external evaluator the skill orchestrates (Garak)
+#   runner    — the skill's runner: orchestration, bookkeeping, reporting
+#   review    — a decision that belongs to the user
 PIPELINE_STEPS = (
-    ("setup", "Create the run (config snapshot, originals copied)"),
-    ("preflight", "Environment check — no model calls (installs, Nexus data, credentials, schemas)"),
-    ("input-review", "YOUR REVIEW: input readiness — documents, data-flow destinations, models, scope"),
-    ("intake", "Policy intake — native parse receipts; conflict review if multiple policies"),
-    ("map", "Policy Mapper — policy text → taxonomy risks with evidence spans"),
-    ("scenarios", "Scenario Generator — risks + your system context → admitted scenarios"),
-    ("artifacts", "Artifact Generator — scenarios → validated artifacts + replay entries"),
-    ("test-plan", "YOUR REVIEW: test plan — the exact replay batch before anything reaches the target"),
-    ("evaluate", "Evaluation — replay entries against your target (Garak + judge)"),
-    ("report", "Report — summary.json + offline HTML overview"),
-    ("verify", "verify-run — model-free consistency check of all evidence"),
+    ("setup", "Create the run (config snapshot, originals copied)", "runner"),
+    (
+        "preflight",
+        "Environment check — no model calls (installs, Nexus data, credentials, schemas)",
+        "runner",
+    ),
+    (
+        "input-review",
+        "Input readiness — documents, data-flow destinations, models, scope",
+        "review",
+    ),
+    ("intake", "Policy intake — native parse receipts; conflict review if several policies", "asago"),
+    ("map", "Policy text → taxonomy risks with evidence spans", "asago"),
+    (
+        "scenarios",
+        "Risks + your system context → admitted scenarios",
+        "asago",
+    ),
+    (
+        "artifacts",
+        "Scenarios → validated artifacts + replay entries",
+        "asago",
+    ),
+    (
+        "test-plan",
+        "Test plan — the exact replay batch before anything reaches the target",
+        "review",
+    ),
+    (
+        "evaluate",
+        "Replay entries against your target (evaluator + judge)",
+        "external",
+    ),
+    ("report", "summary.json + offline HTML overview", "runner"),
+    ("verify", "Model-free consistency check of all evidence", "runner"),
+)
+
+_WORK_TAGS = {
+    "asago": "[ASAGO COMPONENT]",
+    "external": "[EXTERNAL: GARAK]",
+    "runner": "[RUNNER]",
+    "review": "[YOUR REVIEW]",
+}
+
+_WORK_LEGEND = (
+    "  Labels: [ASAGO COMPONENT] = the real Asago library, unmodified · "
+    "[EXTERNAL: GARAK] =\n"
+    "          external evaluator run by the skill · [RUNNER] = "
+    "orchestration, bookkeeping and reporting only ·\n"
+    "          [YOUR REVIEW] = a decision that belongs to you."
 )
 
 _STEP_ICONS = {
@@ -142,16 +187,27 @@ def derive_progress(manifest: dict, run_path: Path | None = None) -> list[dict]:
         states["verify"] = "failed"
 
     return [
-        {"step": step, "label": label, "state": states.get(step, "not_started")}
-        for step, label in PIPELINE_STEPS
+        {
+            "step": step,
+            "label": label,
+            "owner": owner,
+            "state": states.get(step, "not_started"),
+        }
+        for step, label, owner in PIPELINE_STEPS
     ]
 
 
 def render_progress_checklist(progress: list[dict], run_id: str | None = None) -> str:
-    """A human-readable checklist block for terminals and agent narration."""
+    """A human-readable checklist block for terminals and agent narration.
+
+    Every line names whose work the step is (Asago component, external
+    evaluator, runner orchestration, or a user review), so users can see
+    where the real component analysis happens.
+    """
     lines = [f"Asago run progress{f' (run {run_id})' if run_id else ''}:"]
     for item in progress:
         icon = _STEP_ICONS.get(item["state"], "[ ]")
+        tag = _WORK_TAGS.get(item.get("owner", "runner"), "[RUNNER]")
         note = ""
         if item["state"] == "done_with_gaps":
             note = "  (completed with gaps — see the stage output)"
@@ -166,9 +222,10 @@ def render_progress_checklist(progress: list[dict], run_id: str | None = None) -
                 "  (design-time run: the proposed agent is not built — "
                 "stops after the Scenario Generator by design)"
             )
-        lines.append(f"  {icon} {item['step']:<13} {item['label']}{note}")
+        lines.append(f"  {icon} {tag:<17} {item['step']:<12} {item['label']}{note}")
     remaining = sum(1 for i in progress if i["state"] == "not_started")
     lines.append(f"  {remaining} step(s) remaining.")
+    lines.append(_WORK_LEGEND)
     return "\n".join(lines)
 
 
@@ -309,6 +366,14 @@ def render_html(run: RunDir, summary: dict) -> Path:
     e = html.escape
     rows: list[str] = []
 
+    # Whose work each stage is — the same distinction the checklist shows.
+    stage_owners = {
+        "policy-mapper": "[ASAGO COMPONENT] Policy Mapper",
+        "scenario-generator": "[ASAGO COMPONENT] Scenario Generator",
+        "artifact-generator": "[ASAGO COMPONENT] Artifact Generator",
+        "garak": "[EXTERNAL: GARAK] evaluator",
+    }
+
     def stage_row(name: str, record: dict) -> str:
         status = record.get("status") or "not-run"
         color = {
@@ -320,13 +385,14 @@ def render_html(run: RunDir, summary: dict) -> Path:
         }.get(status, "#57606a")
         return (
             f"<tr><td>{e(name)}</td>"
+            f"<td>{e(stage_owners.get(name, '[RUNNER] orchestration'))}</td>"
             f"<td><span style='color:{color};font-weight:600'>{e(status)}</span></td>"
             f"<td>{e(record.get('latest_attempt') or '')}</td></tr>"
         )
 
     stage_html = "".join(
         stage_row(name, record) for name, record in summary.get("stages", {}).items()
-    ) or "<tr><td colspan=3>No stages recorded</td></tr>"
+    ) or "<tr><td colspan=4>No stages recorded</td></tr>"
 
     funnel_html = ""
     for name, funnel in summary.get("funnel", {}).items():
@@ -448,7 +514,8 @@ tools; a proposed tool call is not evidence of a completed backend effect.</p>
 
 {subject_html}
 <h2>Stage status</h2>
-<table><tr><th>Stage</th><th>Status</th><th>Latest attempt</th></tr>{stage_html}</table>
+<table><tr><th>Stage</th><th>Whose work</th><th>Status</th><th>Latest attempt</th></tr>{stage_html}</table>
+<p class="note">The analysis is performed by the Asago components (and the external evaluator); the runner orchestrates, records and reports. It never substitutes its own analysis.</p>
 
 <h2>Counts (separate denominators)</h2>
 {funnel_html}
