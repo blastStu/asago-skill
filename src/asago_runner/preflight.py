@@ -197,7 +197,13 @@ def run_preflight(
         _check(
             "garak.pinned-commit",
             commit == "06aba1a2c9b142d561eeeff08dfaffcbe77487c3",
-            f"installed at {commit} (version {version})",
+            f"installed at {commit} (version {version})"
+            + (
+                " — not blocking: design-time run never evaluates"
+                if config.subject == "proposed"
+                else ""
+            ),
+            blocker=config.subject != "proposed",
         )
 
     # 7. Capability profile + qualification facts are OPTIONAL user inputs.

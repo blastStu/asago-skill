@@ -167,13 +167,55 @@ class TestToolSchemas:
 
     def test_reviewed_schema_takes_precedence(self):
         reviewed = {
-            "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object", "properties": {}}}}],
+            "tools": [{"type": "function", "function": {"name": "g", "parameters": {"type": "object", "properties": {}}}}],
             "path": "/tmp/reviewed.json",
             "sha256": "0" * 64,
         }
         result = derive_tool_schemas("- g(x): ignored", reviewed_schema=reviewed)
-        assert [t["function"]["name"] for t in result.tools] == ["f"]
+        assert [t["function"]["name"] for t in result.tools] == ["g"]
         assert result.sources[0]["kind"] == "reviewed-file"
+
+    def test_reviewed_schema_matching_declarations_is_accepted(self):
+        # Regression: findall() returns tuples, which made the name-set
+        # comparison always fail for artifacts that declare tools.
+        reviewed = {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "refund",
+                        "description": "Refund",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"amount": {"type": "number"}},
+                            "required": ["amount"],
+                        },
+                    },
+                }
+            ],
+            "path": "originals/tool-schemas/t.json",
+            "sha256": "0" * 64,
+        }
+        system = "You are an assistant.\n- refund(amount: float): Refund an order"
+        result = derive_tool_schemas(system, reviewed_schema=reviewed)
+        assert result.errors == []
+        assert result.tools[0]["function"]["parameters"]["properties"]["amount"] == {
+            "type": "number"
+        }
+
+    def test_reviewed_schema_disagreeing_with_declarations_is_rejected(self):
+        reviewed = {
+            "tools": [
+                {"type": "function", "function": {"name": "refund", "parameters": {"type": "object", "properties": {}}}},
+                {"type": "function", "function": {"name": "transfer", "parameters": {"type": "object", "properties": {}}}},
+            ],
+            "path": "originals/tool-schemas/t.json",
+            "sha256": "0" * 64,
+        }
+        result = derive_tool_schemas(
+            "- refund(amount: float): Refund", reviewed_schema=reviewed
+        )
+        assert any("do not match the artifact's declared tools" in e for e in result.errors)
 
 
 def _artifact(turns=None, attack_index=None, surface="user_turn") -> dict:

@@ -615,3 +615,181 @@ class TestAdversarialReviewFixes:
                 run,
                 [{"parsed_text": str(secret), "keep_spans": [[0, 6]]}],
             )
+
+
+class TestVerificationRound2:
+    """Regressions for the 2026-11-14 fix-verification findings."""
+
+    def test_adapted_scenario_resolves_run_relative_receipts(self, tmp_path, monkeypatch):
+        import yaml as _yaml
+
+        from asago_runner.adapters.artifacts import adapted_scenario
+        from asago_runner.evidence import RunDir
+        from asago_runner.replay import Eligibility
+
+        run = RunDir.create(tmp_path / "run")
+        handoff = run.path / "stages" / "scenario-generator" / "a" / "handoff"
+        handoff.mkdir(parents=True)
+        (handoff / "s.yaml").write_text(
+            _yaml.safe_dump({"scenario_id": "s", "narrative": {"entry_point": "RAG retrieval"}})
+        )
+        (handoff / "s.feature").write_text("Feature: s\n")
+        receipt = {
+            "scenario_id": "s",
+            "yaml": "stages/scenario-generator/a/handoff/s.yaml",
+            "feature": "stages/scenario-generator/a/handoff/s.feature",
+        }
+        eligibility = Eligibility(
+            scenario_id="s",
+            eligible=True,
+            surface="tool_return",
+            reason="test",
+            basis={},
+            adaptation={"new_entry_point": "RAG retrieval (tool_execution)"},
+        )
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)  # foreign CWD: must not resolve there
+        dst = adapted_scenario(run, receipt, eligibility, run.path / "adapted")
+        assert dst.is_file()
+        assert (run.path / "adapted" / "s.feature").is_file()
+        record = json.loads((run.path / "adapted" / "s.adaptation.json").read_text())
+        # Parents are recorded run-relative, per the persisted-path contract.
+        assert not record["canonical_yaml"].startswith("/")
+        assert not record["adapted_yaml"].startswith("/")
+
+    def test_replay_meta_paths_are_run_relative(self, tmp_path):
+        from asago_runner.adapters.artifacts import write_replay_entries
+        from asago_runner.config import RunConfig
+        from asago_runner.evidence import RunDir
+        from asago_runner.replay import Eligibility
+
+        run = RunDir.create(tmp_path / "run")
+        scenario = run.path / "handoff" / "s.yaml"
+        scenario.parent.mkdir(parents=True)
+        scenario.write_text("scenario_id: s\n")
+        feature = run.path / "handoff" / "s.feature"
+        feature.write_text("Feature: s\n")
+        artifact_path = run.path / "artifacts" / "s-garak.json"
+        artifact_path.parent.mkdir(parents=True)
+        artifact = {
+            "turns": [
+                {"role": "system", "content": "You are an assistant.\n- refund(amount: float): Refund"},
+                {"role": "user", "content": "attack"},
+            ],
+            "attack_turn_index": 1,
+            "injection_surface": "user_turn",
+            "detector_rubric": {
+                "context": "ctx",
+                "rubrics": {"attack_success": ["x"], "attack_blocked": ["y"]},
+            },
+        }
+        artifact_path.write_text(json.dumps(artifact))
+        from asago_runner.hashing import sha256_file
+
+        cfg = RunConfig.load(_write_config(tmp_path, [POLICY_A]))
+        candidate = {
+            "scenario_id": "s",
+            "gate": "full",
+            "ok": True,
+            "artifact_path": str(artifact_path),
+            "artifact_sha256": sha256_file(artifact_path),
+            "eligibility": Eligibility(
+                scenario_id="s", eligible=True, surface="user_turn", reason="t", basis={}
+            ),
+            "receipt": {
+                "scenario_id": "s",
+                "yaml": "handoff/s.yaml",
+                "feature": "handoff/s.feature",
+            },
+            "artifact": artifact,
+        }
+        written, gaps = write_replay_entries(run, run.path / "attempt", [candidate], cfg)
+        assert gaps == []
+        meta = json.loads((run.path / written[0]["meta_path"]).read_text())
+        for path_value in (
+            meta["parent_artifact"]["path"],
+            meta["parent_scenario"]["scenario_yaml"]["path"],
+            meta["parent_scenario"]["scenario_feature"]["path"],
+        ):
+            assert not str(path_value).startswith("/")
+        # And no string in the persisted meta leaks the absolute run root.
+        blob = json.dumps(meta)
+        assert str(run.path) not in blob
+
+    def test_duplicate_policy_basenames_rejected(self, tmp_path):
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "p.md").write_text(POLICY_A)
+        (tmp_path / "b").mkdir()
+        (tmp_path / "b" / "p.md").write_text(POLICY_B)
+        (tmp_path / "sys").mkdir()
+        (tmp_path / "sys" / "u.md").write_text("# Use case\nA chat assistant.\n")
+        (tmp_path / "m").mkdir()
+        (tmp_path / "m" / "m.tsv").write_text(
+            "subject_id\tsubject_source\tpredicate_id\tobject_id\tobject_source\tmapping_justification\n"
+            "atlas-hallucination\tibm-risk-atlas\tskos:exactMatch\towasp-llm09\towasp-llm\tsemapv:ManualMappingCuration\n"
+        )
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text(
+            """schema_version: 1
+run:
+  label: dup
+policy:
+  documents:
+    - path: a/p.md
+    - path: b/p.md
+system:
+  use_case_file: sys/u.md
+  identity:
+    system_name: test
+sssom:
+  path: m/m.tsv
+connections:
+  mapper_llm: {base_url_env: A, model_env: B, api_key_env: C}
+  scenario_llm: {base_url_env: A, model_env: B, api_key_env: C}
+  artifact_llm: {base_url_env: A, model_env: B, api_key_env: C}
+  target: {base_url_env: T, model_env: U, api_key_env: V}
+  judge: {base_url_env: T, model_env: U, api_key_env: V}
+"""
+        )
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        code, out, _, err = _run(
+            "new-run", "--config", str(cfg), "--run-dir",
+            str(tmp_path / "run"), env_extra=env,
+        )
+        assert code != 0
+        assert "rename one" in (err + json.dumps(out or {}))
+
+    def test_counts_reconcile_with_featureless_admission(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.verify import _verify_counts
+
+        run = RunDir.create(tmp_path / "run")
+        (run.path / "reports").mkdir(exist_ok=True)
+        (run.path / "reports" / "summary.json").write_text(
+            json.dumps({"funnel": {"scenarios": {"admitted": 1}}})
+        )
+        admitted_hashes = {
+            ("s1", "scenario_yaml"): "h1",
+            ("s1", "scenario_feature"): "h2",
+            ("s2", "scenario_yaml"): "h3",  # feature-less: excluded by both sides
+        }
+        checks = []
+        _verify_counts(run, {}, admitted_hashes, lambda n, ok, d: checks.append((n, ok, d)))
+        names = {n: ok for n, ok, _ in checks}
+        assert names.get("counts.scenarios-reconcile") is True
+
+    def test_missing_tools_schema_blocks_cleanly(self, tmp_path):
+        cfg = _write_config(tmp_path, [POLICY_A])
+        text = cfg.read_text().replace(
+            "system:\n", "options:\n  tools_schema_file: nope/missing.json\nsystem:\n", 1
+        )
+        cfg.write_text(text)
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        code, out, _, err = _run(
+            "new-run", "--config", str(cfg), "--run-dir",
+            str(tmp_path / "run"), env_extra=env,
+        )
+        assert code != 0
+        assert "tools_schema_file" in (err + json.dumps(out or {}))
+        assert "Traceback" not in err

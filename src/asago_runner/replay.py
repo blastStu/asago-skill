@@ -315,7 +315,9 @@ def derive_tool_schemas(
             # exist. A reviewed schema that declares tools the artifact
             # does not must not silently satisfy the undeclared-tool
             # rejection.
-            declared = set(TOOL_DECL_RE.findall(system_content or ""))
+            declared = {
+                m.group(1) for m in TOOL_DECL_RE.finditer(system_content or "")
+            }
             reviewed_names = {
                 t.get("function", {}).get("name") for t in tools if isinstance(t, dict)
             }

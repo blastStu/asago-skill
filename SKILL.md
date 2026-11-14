@@ -215,6 +215,13 @@ agent-drafted in the decision journal. Never generate these files silently.
   labelled smoke checks. Ask whether concerns are missing from
   the policy; any supplement is a draft the user must verify before use.
 - **Run scope**: which risks/surfaces, generation limits, target samples.
+- **Optional — reviewed typed tool schemas**: if your system declares tools
+  in the artifact's conversation, you may supply a JSON file with a
+  top-level `tools` list (OpenAI function-tool objects) so the replayed
+  calls carry your typed contract instead of schemas derived from prose.
+  The artifact's own declarations must name exactly the same tools. Set it
+  as `options.tools_schema_file`; it is copied into the run and validated
+  at preflight.
 - **Optional — retrieval models for the Policy Mapper** (ask, marked
   optional, with the question tool): the default runs local CPU models
   (downloaded automatically, nothing leaves the machine); a remote

@@ -102,6 +102,14 @@ scope:
 
 options:
   ocr: false
+  # OPTIONAL: reviewed, typed tool schemas for replay entries (JSON with a
+  # top-level "tools" list of OpenAI function-tool objects). Copied into the
+  # run at new-run and validated at preflight. When supplied, the artifact's
+  # own system-turn declarations must name exactly the same tools; the
+  # reviewed schemas provide the parameter types. Without it, schemas are
+  # derived from the artifact's explicit declarations only (untyped
+  # parameters stay unconstrained).
+  # tools_schema_file: system/tool-schemas.json
 
 telemetry:
   # Runner/stage spans via standard OTEL_* settings (OTEL_EXPORTER_OTLP_ENDPOINT).

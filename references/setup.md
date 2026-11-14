@@ -104,6 +104,22 @@ labelled smoke checks (schema, temperature/token parameters, tools + prior
 tool messages) as shown in the compatibility record — a few one-token
 requests, no policy content.
 
+## Optional inputs and reviewed tool schemas
+
+The capability profile and qualification facts are optional; without them
+the Scenario Generator runs its own Stage-1 inference (see
+`examples/config.example.yaml`). Two further optional settings:
+
+- `retrieval:` — remote bi-/cross-encoder endpoints for the Policy Mapper
+  (defaults are local CPU models). A remote endpoint means policy chunk
+  text is sent there; it appears in the data-flow table.
+- `options.tools_schema_file` — a JSON file with a top-level `tools` list
+  of OpenAI function-tool objects, used as the typed contract for replayed
+  tool calls. It is copied into the run at `new-run`, validated for shape
+  at `preflight`, and must name exactly the tools the artifact's own
+  system-turn declarations name (a mismatch rejects the replay entry).
+  Without it, schemas are derived from those declarations only.
+
 ## Telemetry (optional)
 
 Runner/stage spans export through the standard OpenTelemetry settings —

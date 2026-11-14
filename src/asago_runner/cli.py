@@ -175,55 +175,67 @@ def new_run(
             missing.append(f"{key}: {path}")
     if not cfg.sssom_path().is_file():
         missing.append(f"sssom: {cfg.sssom_path()}")
+    if cfg.tools_schema_file:
+        schema_path = cfg._resolve(cfg.tools_schema_file)
+        if not schema_path.is_file():
+            missing.append(f"tools_schema_file: {schema_path}")
     if missing:
         raise typer.BadParameter(
             "configuration references missing inputs: " + "; ".join(missing)
         )
-    run = RunDir.create(target)
 
-    # Copy originals: policies, system context, SSSOM, config itself.
-    # The config-relative → run-dir mapping is recorded so later stages can
-    # load the copied configuration and resolve the same inputs.
-    originals = run.path / "originals"
-    path_map: dict[str, str] = {}
-    policy_copies = []
+    # Plan every copy up-front so duplicate destinations are rejected
+    # BEFORE anything is written. Two inputs sharing a basename (e.g. two
+    # policies both called p.md) would otherwise silently overwrite each
+    # other and share one path_map entry.
+    originals_root = target / "originals"
+    policy_rels = {entry["path"] for entry in cfg.raw["policy"]["documents"]}
+    planned: list[tuple[str, Path, Path]] = []  # (config_rel, source, dest)
     for entry, path in zip(cfg.raw["policy"]["documents"], cfg.policy_paths()):
-        dest = originals / "policies" / path.name
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, dest)
-        policy_copies.append(dest)
-        path_map[entry["path"]] = str(dest)
+        planned.append((entry["path"], path, originals_root / "policies" / path.name))
     for key in ("use_case_file", "profile_file", "qualification_facts_file"):
         config_rel = cfg.raw["system"].get(key)
         if not config_rel:
             continue  # optional input: not supplied, not copied
         src = cfg.resolved_path(key)
-        dest = originals / "system" / src.name
+        planned.append((config_rel, src, originals_root / "system" / src.name))
+    sssom_src = cfg.sssom_path()
+    planned.append(
+        (cfg.raw["sssom"]["path"], sssom_src, originals_root / "sssom" / sssom_src.name)
+    )
+    if cfg.tools_schema_file:
+        planned.append(
+            (
+                cfg.tools_schema_file,
+                cfg._resolve(cfg.tools_schema_file),
+                originals_root / "tool-schemas" / cfg._resolve(cfg.tools_schema_file).name,
+            )
+        )
+    destinations: dict[Path, str] = {}
+    for config_rel, _src, dest in planned:
+        if dest in destinations:
+            raise typer.BadParameter(
+                "two inputs map to the same retained file "
+                f"{dest.relative_to(target)} ({destinations[dest]!r} and "
+                f"{config_rel!r}); rename one so each retained original is "
+                "distinct"
+            )
+        destinations[dest] = config_rel
+
+    run = RunDir.create(target)
+
+    # Copy originals: policies, system context, SSSOM, tool schemas, config.
+    # The config-relative → run-dir mapping is recorded so later stages can
+    # load the copied configuration and resolve the same inputs.
+    originals = run.path / "originals"
+    path_map: dict[str, str] = {}
+    policy_copies: list[Path] = []
+    for config_rel, src, dest in planned:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dest)
         path_map[config_rel] = str(dest)
-    sssom_config_rel = cfg.raw["sssom"]["path"]
-    sssom_src = cfg.sssom_path()
-    (originals / "sssom").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(sssom_src, originals / "sssom" / sssom_src.name)
-    path_map[sssom_config_rel] = str(originals / "sssom" / sssom_src.name)
-    if cfg.tools_schema_file:
-        schema_src = cfg._resolve(cfg.tools_schema_file)
-        schema_dest = originals / "tool-schemas" / schema_src.name
-        schema_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(schema_src, schema_dest)
-        path_map[cfg.tools_schema_file] = str(schema_dest)
-    # Two inputs sharing a basename would silently overwrite each other.
-    seen_basenames: dict[str, str] = {}
-    for dest in path_map.values():
-        base = Path(dest).name
-        if base in seen_basenames and seen_basenames[base] != dest:
-            raise typer.BadParameter(
-                f"two inputs share the filename {base!r} "
-                f"({seen_basenames[base]} and {dest}); rename one so each "
-                "retained original is distinct"
-            )
-        seen_basenames[base] = dest
+        if config_rel in policy_rels:
+            policy_copies.append(dest)
     shutil.copyfile(cfg.source_path, originals / "run-config.yaml")
 
     import uuid

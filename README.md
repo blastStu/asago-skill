@@ -49,7 +49,7 @@ expect a few GB and some minutes). Verify afterwards:
 
 ```bash
 .venv/bin/asago-runner --help
-.venv/bin/python -m pytest tests/ -q        # 69 offline checks, no model calls
+.venv/bin/python -m pytest tests/ -q        # offline test suite, no model calls
 ```
 
 The repository is already registered as a Claude Code project skill

@@ -208,15 +208,26 @@ def _verify_counts(
 
     scenarios = funnel.get("scenarios", {})
     if scenarios:
-        actual = sum(1 for (_sid, role) in admitted_hashes if role == "scenario_yaml")
+        # Like-for-like: the summary's admitted denominator counts scenarios
+        # handed off WITH a sibling .feature (feature-less admissions are
+        # reported separately). Compare against inventory scenarios that
+        # carry both receipts, not every scenario_yaml receipt.
+        yaml_ids = {sid for (sid, role) in admitted_hashes if role == "scenario_yaml"}
+        feature_ids = {
+            sid for (sid, role) in admitted_hashes if role == "scenario_feature"
+        }
+        actual = len(yaml_ids & feature_ids)
+        missing_feature = len(yaml_ids - feature_ids)
         match = scenarios.get("admitted") == actual
         check(
             "counts.scenarios-reconcile",
             match,
-            f"summary {scenarios.get('admitted')} == inventory {actual}"
+            f"summary {scenarios.get('admitted')} == inventory {actual} "
+            f"(+{missing_feature} admitted without .feature, excluded by both)"
             if match
             else f"summary reports {scenarios.get('admitted')} admitted; the native "
-            f"inventory has {actual}",
+            f"inventory has {actual} with both receipts ({missing_feature} "
+            "feature-less)",
         )
 
     evaluations = funnel.get("evaluations", {})

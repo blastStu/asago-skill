@@ -54,6 +54,14 @@ def load_scenario_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def _resolve(run: RunDir, value) -> Path | None:
+    """Resolve a persisted path: run-relative, absolute passthrough."""
+    if value is None:
+        return None
+    candidate = Path(str(value))
+    return candidate if candidate.is_absolute() else run.path / candidate
+
+
 def eligibility_for_batch(
     run, handoff_receipts: list[dict]
 ) -> tuple[list[tuple[dict, Eligibility]], list[str]]:
@@ -88,20 +96,22 @@ def adapted_scenario(
     separately recorded derivation with hashes of both parents.
     """
     adapted_dir.mkdir(parents=True, exist_ok=True)
-    src = Path(receipt["yaml"])
+    # Receipts are run-relative: resolve against the run root, never CWD.
+    src = _resolve(run, receipt["yaml"])
     scenario = load_scenario_yaml(src)
     scenario["narrative"]["entry_point"] = eligibility.adaptation["new_entry_point"]
     dst = adapted_dir / src.name
     dst.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
-    if receipt.get("feature"):
-        shutil.copyfile(receipt["feature"], adapted_dir / Path(receipt["feature"]).name)
+    feature_src = _resolve(run, receipt.get("feature"))
+    if feature_src is not None:
+        shutil.copyfile(feature_src, adapted_dir / feature_src.name)
     atomic_write_json(
         adapted_dir / f"{src.stem}.adaptation.json",
         {
             "kind": "provenance-backed-surface-adaptation",
-            "canonical_yaml": str(src),
+            "canonical_yaml": run.rel(src),
             "canonical_yaml_sha256": sha256_file(src),
-            "adapted_yaml": str(dst),
+            "adapted_yaml": run.rel(dst),
             "adapted_yaml_sha256": sha256_file(dst),
             "adaptation": eligibility.adaptation,
             "eligibility_reason": eligibility.reason,
@@ -307,8 +317,8 @@ def write_replay_entries(
         payload.pop("_meta", None)
         entry_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         meta_path = entries_dir / f"{sid}.replay-meta.json"
-        atomic_write_json(meta_path, entry["_meta"])
         # Persist run-relative paths; readers resolve against the run root.
+        # Relativize BEFORE writing the meta file.
         meta = entry["_meta"]
 
         def _rel(value):
@@ -325,6 +335,7 @@ def write_replay_entries(
             node = (meta.get("parent_scenario") or {}).get(key)
             if isinstance(node, dict) and node.get("path"):
                 node["path"] = _rel(node["path"])
+        atomic_write_json(meta_path, meta)
         written.append(
             {
                 "scenario_id": sid,
