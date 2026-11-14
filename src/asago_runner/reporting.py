@@ -544,188 +544,32 @@ def build_summary(run: RunDir) -> dict:
 
     if manifest.get("verify_run"):
         summary["verify_run"] = manifest["verify_run"]
+
+    # Rich per-stage detail for the HTML page (risk matches, scenarios,
+    # replay entries, evaluations, and the run audit). Read from the same
+    # retained evidence; never fabricated to fill a panel.
+    from .report_page import collect_report_data
+
+    summary["details"] = collect_report_data(run, summary)
     return summary
 
 
-def render_html(run: RunDir, summary: dict) -> Path:
-    """Render the offline HTML overview with escaped untrusted content."""
-    e = html.escape
-    rows: list[str] = []
 
-    # Whose work each stage is — the same distinction the checklist shows.
-    stage_owners = {
-        "policy-mapper": "[ASAGO COMPONENT] Policy Mapper",
-        "scenario-generator": "[ASAGO COMPONENT] Scenario Generator",
-        "artifact-generator": "[ASAGO COMPONENT] Artifact Generator",
-        "garak": "[EXTERNAL: GARAK] evaluator",
-    }
+def render_html(
+    run: RunDir, summary: dict, conversation: str | None = None
+) -> Path:
+    """Render the offline HTML report from the derived summary detail.
 
-    def stage_row(name: str, record: dict) -> str:
-        status = record.get("status") or "not-run"
-        color = {
-            "completed": "#1a7f37",
-            "completed_with_gaps": "#9a6700",
-            "needs_review": "#9a6700",
-            "blocked": "#cf222e",
-            "failed": "#cf222e",
-        }.get(status, "#57606a")
-        return (
-            f"<tr><td>{e(name)}</td>"
-            f"<td>{e(stage_owners.get(name, '[RUNNER] orchestration'))}</td>"
-            f"<td><span style='color:{color};font-weight:600'>{e(status)}</span></td>"
-            f"<td>{e(record.get('latest_attempt') or '')}</td></tr>"
-        )
+    ``conversation`` is an optional, already-read transcript of the session
+    that ran the skill. It is rendered as escaped text; its content is not
+    written to summary.json.
+    """
+    from .report_page import collect_report_data, render_page
 
-    stage_html = "".join(
-        stage_row(name, record) for name, record in summary.get("stages", {}).items()
-    ) or "<tr><td colspan=4>No stages recorded</td></tr>"
-
-    funnel_html = ""
-    for name, funnel in summary.get("funnel", {}).items():
-        funnel_html += f"<h3>{e(name)}</h3><dl>"
-        for key, value in funnel.items():
-            if key == "denominator_note" or key == "attack_rate_note":
-                funnel_html += f"<dt>{e(key)}</dt><dd class='note'>{e(str(value))}</dd>"
-            elif isinstance(value, dict):
-                funnel_html += (
-                    f"<dt>{e(key)}</dt><dd>{e(json.dumps(value, sort_keys=True))}</dd>"
-                )
-            else:
-                funnel_html += f"<dt>{e(key)}</dt><dd>{e(str(value))}</dd>"
-        funnel_html += "</dl>"
-
-    eval_rows = []
-    for evaluation in summary.get("evaluations", []):
-        outcome = evaluation.get("outcome", "inconclusive")
-        color = {
-            "attack_succeeded": "#cf222e",
-            "attack_not_demonstrated": "#1a7f37",
-            "inconclusive": "#9a6700",
-        }.get(outcome, "#57606a")
-        confidence = evaluation.get("judge_confidence")
-        eval_rows.append(
-            "<tr>"
-            f"<td>{e(str(evaluation.get('scenario_id')))}</td>"
-            f"<td>{e(str(evaluation.get('surface')))}</td>"
-            f"<td><span style='color:{color};font-weight:600'>{e(outcome)}</span></td>"
-            f"<td>{e(str(confidence) if confidence is not None else '—')}</td>"
-            f"<td class='reason'>{e(str(evaluation.get('reason') or ''))}</td>"
-            f"<td><a href='../{e(str(evaluation.get('dispatch_dir', '')))}'>evidence</a></td>"
-            "</tr>"
-        )
-    eval_html = "".join(eval_rows) or "<tr><td colspan=6>No evaluations dispatched</td></tr>"
-
-    gaps = summary.get("gaps", [])
-    gaps_html = "".join(f"<li>{e(g)}</li>" for g in gaps) or "<li>None recorded</li>"
-
-    shared = summary.get("shared_model_roles") or []
-    shared_html = (
-        "".join(f"<li>{e(' = '.join(group))}</li>" for group in shared)
-        or "<li>No shared model roles configured</li>"
-    )
-    shared_note = (
-        "<p class='note'>A shared target/judge model means the detector judgment "
-        "lacks independent validation; separate role configuration does not "
-        "establish independence.</p>"
-        if shared
-        else ""
-    )
-
-    surfaces = summary.get("tested_surface") or []
-    surface_html = (
-        "<p><strong>Tested surface(s):</strong> "
-        + e(", ".join(surfaces))
-        + " — a direct chat user-turn attack is labelled as such and is not "
-        "indirect-injection coverage.</p>"
-        if surfaces
-        else ""
-    )
-
-    subject_html = ""
-    if summary.get("subject") == "proposed":
-        subject_html = (
-            "<div class='note' style='border:2px solid #9a6700; padding:0.6rem 1rem;"
-            " border-radius:8px; margin:0.8rem 0;'>"
-            "<strong>Design-time run.</strong> The subject is a proposed design, "
-            "not a built system: the run deliberately stops after the Scenario "
-            "Generator. The scenarios below are the threat picture for the design "
-            "as described — no evaluation was attempted or is possible until the "
-            "system is built.</div>"
-        )
-
-    links = []
-    for rel, label in [
-        ("../stages/policy-mapper", "Policy Mapper native outputs"),
-        ("../stages/scenario-generator", "Scenario Generator native outputs"),
-        ("../stages/artifact-generator", "Artifact Generator native outputs"),
-        ("../stages/garak", "Garak dispatch evidence"),
-        ("../decisions.jsonl", "Decision journal"),
-        ("../inventory.json", "Evidence inventory"),
-    ]:
-        path = run.path / rel.replace("../", "")
-        if path.exists():
-            links.append(f"<li><a href='{e(rel)}'>{e(label)}</a></li>")
-    links_html = "".join(links)
-
-    document = f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Asago run overview — {e(str(summary.get('label') or summary.get('run_id')))}</title>
-<style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-         margin: 0 auto; max-width: 60rem; padding: 1rem 1.5rem 3rem; color: #1f2328;
-         background: #fff; line-height: 1.5; }}
-  h1 {{ font-size: 1.5rem; }} h2 {{ font-size: 1.2rem; margin-top: 2rem; }} h3 {{ font-size: 1rem; }}
-  table {{ border-collapse: collapse; width: 100%; margin: 0.5rem 0 1rem; }}
-  th, td {{ border: 1px solid #d0d7de; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }}
-  th {{ background: #f6f8fa; }}
-  .note {{ color: #57606a; font-size: 0.9rem; }}
-  .reason {{ font-size: 0.85rem; color: #57606a; max-width: 28rem; }}
-  dt {{ font-weight: 600; display: inline; }} dd {{ display: inline; margin: 0 1rem 0 0.4rem; }}
-  dl {{ margin: 0.3rem 0; }}
-  code {{ background: #f6f8fa; padding: 0.1rem 0.3rem; border-radius: 4px; }}
-</style>
-</head>
-<body>
-<h1>Asago run overview</h1>
-<p class="note">Run <code>{e(str(summary.get('run_id')))}</code> · label
-<code>{e(str(summary.get('label')))}</code> · generated {e(str(summary.get('generated_at')))}</p>
-<p class="note">This overview is a derived convenience view. Native component
-outputs and the decision journal are the retained evidence; a risk match is
-not a finding, an admitted scenario is not an executable artifact, and an
-inconclusive evaluation is not a pass. The runner does not execute business
-tools; a proposed tool call is not evidence of a completed backend effect.</p>
-
-{subject_html}
-<h2>Stage status</h2>
-<table><tr><th>Stage</th><th>Whose work</th><th>Status</th><th>Latest attempt</th></tr>{stage_html}</table>
-<p class="note">The analysis is performed by the Asago components (and the external evaluator); the runner orchestrates, records and reports. It never substitutes its own analysis.</p>
-
-<h2>Counts (separate denominators)</h2>
-{funnel_html}
-
-<h2>Evaluations</h2>
-{surface_html}
-<table><tr><th>Scenario</th><th>Surface</th><th>Outcome</th><th>Judge confidence</th><th>Reason</th><th>Evidence</th></tr>{eval_html}</table>
-
-<h2>Known gaps and exclusions</h2>
-<ul>{gaps_html}</ul>
-
-<h2>Model roles</h2>
-<ul>{shared_html}</ul>
-{shared_note}
-
-<h2>Evidence</h2>
-<ul>{links_html}</ul>
-<p class="note">Offline static page: no scripts, credentials or model calls are
-needed to read it. Untrusted content (policy text, attacks, responses) is escaped.</p>
-</body>
-</html>
-"""
-    out = run.path / "reports" / "index.html"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(document, encoding="utf-8")
+    data = summary.get("details")
+    if not isinstance(data, dict) or not data.get("audit"):
+        data = collect_report_data(run, summary)
+        summary["details"] = data
+    out = render_page(run, summary, data, conversation=conversation)
     atomic_write_json(run.path / "reports" / "summary.json", summary)
     return out

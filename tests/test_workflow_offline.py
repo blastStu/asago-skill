@@ -201,17 +201,20 @@ class TestReportingAndTelemetry:
         code, out, _, _ = _run("report", str(run_dir), env_extra=env)
         assert code == 0
         html = (run_dir / "reports" / "index.html").read_text()
-        assert "Asago run overview" in html
-        # Untrusted content would be escaped if present; the page itself
-        # contains no scripts and no external resources.
-        assert "<script" not in html
+        assert "From policy to model evaluation." in html
+        assert "Asago run report" in html
+        # The page is self-contained: one inline script for filters and stage
+        # navigation, and no external resources of any kind.
+        assert "<script src" not in html
+        assert "<link " not in html
+        assert "http://" not in html and "https://" not in html
         assert (run_dir / "reports" / "summary.json").is_file()
 
     def test_report_escapes_untrusted_text(self, tmp_path):
         run = RunDir.create(tmp_path / "run2")
 
         def mutate(m):
-            m["stages"] = {"garak": {"attempts": [{"dispatches": [{
+            m["stages"] = {"garak": {"status": "completed", "attempts": [{"dispatches": [{
                 "scenario_id": "<script>alert(1)</script>",
                 "outcome": "inconclusive",
                 "reason": "<img src=x onerror=alert(2)>",
@@ -226,8 +229,110 @@ class TestReportingAndTelemetry:
         html = (run.path / "reports" / "index.html").read_text()
         assert "<script>alert(1)</script>" not in html
         assert "&lt;script&gt;" in html
-        # The dangerous parts are the unescaped tags, not the escaped text:
-        assert "<img" not in html and "<script" not in html
+        # The dangerous parts are the unescaped tags, not the escaped text.
+        assert "<img" not in html and "<script>alert" not in html
+
+    def test_report_groups_risks_by_theme(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.reporting import build_summary, render_html
+
+        run = RunDir.create(tmp_path / "themed")
+        sssom = run.path / "originals" / "sssom" / "risk_to_category.sssom.tsv"
+        sssom.parent.mkdir(parents=True)
+        sssom.write_text(
+            "#curie_map:\nsubject_id\tsubject_source\tpredicate_id\tobject_id\t"
+            "object_source\tmapping_justification\n"
+            "atlas-example\tibm-risk-atlas\tskos:exactMatch\tnist-data-privacy\t"
+            "nist-ai-rmf\texample\n",
+            encoding="utf-8",
+        )
+        attempt = run.path / "stages" / "policy-mapper" / "0001-x"
+        attempt.mkdir(parents=True)
+        (attempt / "risk-extraction.json").write_text(
+            json.dumps(
+                {
+                    "risks": [
+                        {
+                            "risk_id": "atlas-example",
+                            "risk_name": "Example privacy risk",
+                            "risk_description": "Description",
+                            "taxonomy": "ibm-risk-atlas",
+                            "grounding_confidence": "high",
+                            "evidence": [
+                                {
+                                    "text": "The policy protects personal data.",
+                                    "document": "/elsewhere/policy.pdf",
+                                    "section": "Data",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def mutate(m):
+            m["subject"] = "built"
+            m["stages"] = {
+                "policy-mapper": {
+                    "status": "completed",
+                    "attempts": [{"attempt_id": "0001-x", "status": "completed"}],
+                }
+            }
+            m["flow"] = {
+                "mapper_output": {
+                    "extraction": "stages/policy-mapper/0001-x/risk-extraction.json"
+                }
+            }
+
+        run.update_manifest(mutate)
+        summary = build_summary(run)
+        assert summary["details"]["policy"]["counts"]["themes"] == {"privacy": 1}
+        render_html(run, summary)
+        html = (run.path / "reports" / "index.html").read_text()
+        assert "Privacy &amp; confidentiality" in html
+        assert "data-theme='privacy'" in html
+        assert "The policy protects personal data." in html
+        # Untrusted document paths are shown as a basename, not an absolute path.
+        assert "/elsewhere/policy.pdf" not in html and "policy.pdf" in html
+
+    def test_report_disables_unrun_design_stages(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.reporting import build_summary, render_html
+
+        run = RunDir.create(tmp_path / "design")
+        run.update_manifest(
+            lambda m: m.update(
+                {
+                    "subject": "proposed",
+                    "stages": {"policy-mapper": {"status": "completed"}},
+                }
+            )
+        )
+        summary = build_summary(run)
+        render_html(run, summary)
+        html = (run.path / "reports" / "index.html").read_text()
+        assert "Not run — design-time" in html
+        assert "disabled" in html
+        assert "panel-artifact" not in html and "panel-evaluation" not in html
+        assert "panel-policy" in html
+
+    def test_report_includes_conversation_and_audit(self, tmp_path):
+        from asago_runner.evidence import RunDir
+        from asago_runner.reporting import build_summary, render_html
+
+        run = RunDir.create(tmp_path / "audited")
+        summary = build_summary(run)
+        render_html(run, summary, "# Session\nWe ran **report**.\n- step one")
+        html = (run.path / "reports" / "index.html").read_text()
+        assert "Conversation with the agent" in html
+        assert "<strong>report</strong>" in html
+        assert "<li>step one</li>" in html
+        assert "Run audit" in html
+        # Transcript content is rendered, not copied into the machine summary.
+        assert "step one" in html
+        assert "step one" not in (run.path / "reports" / "summary.json").read_text()
 
     def test_telemetry_without_collector_warns_not_fails(self, tmp_path):
         from asago_runner.telemetry import init_telemetry, stage_span
@@ -885,8 +990,9 @@ class TestWorkOwnershipLabels:
         summary = build_summary(run)
         render_html(run, summary)
         html = (run.path / "reports" / "index.html").read_text()
-        assert "[ASAGO COMPONENT] Policy Mapper" in html
-        assert "[EXTERNAL: GARAK] evaluator" in html
+        assert "[ASAGO COMPONENT]" in html
+        assert "[EXTERNAL: GARAK]" in html
+        assert "Policy Mapper" in html and "Garak Evaluation" in html
         assert "Whose work" in html
 
 

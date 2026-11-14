@@ -356,9 +356,20 @@ limitations). Never paste whole request files into chat; link or summarize.
 
 ### 4. Explaining results
 
-Open `reports/index.html` (offline, escaped content). Walk through stage
-status, counts with their separate denominators, evaluations with
-confidence and reasoning, and gaps. Be explicit about: the tested surface
+Open `reports/index.html` (offline, escaped content; one inline script for
+stage navigation and filters, no network). The report has one tab per
+pipeline stage — policy findings grouped by theme, adversarial scenarios
+with their policy traces, the replay transcript, the evaluation verdict —
+plus **05 Run audit**, which shows the decision journal, review gates,
+stage attempts and configured models. In a design-time run the artifact and
+evaluation tabs are shown disabled with the reason. Walk through themes and
+counts with their separate denominators, evaluations with confidence and
+reasoning, and gaps.
+
+If you kept a transcript of this session, save it as
+`$RUN/reports/conversation.md` before running `report` (or pass
+`--conversation <path>`); the report includes it, escaped, in the run
+audit. The transcript is rendered, not copied into `summary.json`. Be explicit about: the tested surface
 (a direct chat user-turn attack is labelled as such — it is not indirect
 coverage); shared model roles; inconclusive outcomes and why; what the
 evidence does and does not establish. Link the native reports and the

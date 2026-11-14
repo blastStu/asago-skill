@@ -68,6 +68,18 @@ evaluator, `[RUNNER]` for orchestration/bookkeeping/reporting, and
 offline HTML report's "Whose work" column. Agents should quote the
 checklist (including its legend) when narrating progress.
 
+`report` derives `reports/summary.json` and renders the offline
+`reports/index.html`: a fifth-tab run report with one tab per pipeline
+stage plus **05 Run audit**. Policy findings are grouped by theme using the
+mapper's curated report navigation data (adopted from PR #79 at a pinned
+commit) joined through the same SSSOM mappings the mapper uses. Stages a
+design-time run does not reach are rendered disabled with their reason.
+`--conversation <path>` (or `reports/conversation.md` in the run) embeds a
+transcript of the session that ran the skill in the audit tab; it is
+escaped, and the transcript text is not written into `summary.json`. The
+page loads nothing from the network; its one inline script only switches
+tabs, filters findings and toggles light/dark.
+
 `RUN` is the run directory created by `new-run`. **Runs are isolated**: by
 default `new-run` creates the run under `~/.asago/runs/<label>` (override
 with `--runs-root` or `$ASAGO_RUNNER_RUNS_ROOT`, or place one explicitly

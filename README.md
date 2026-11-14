@@ -105,10 +105,13 @@ libraries need, in this order:
    passages with a machine-checked span map.
 5. **Evaluation and results**: after you approve the test plan, the agent
    runs Garak (one artifact per subprocess, under a deadline), then opens
-   `reports/index.html` — stage status, counts with honest denominators,
-   each evaluation's verdict with the judge's confidence and reasoning, and
-   every gap and exclusion — and walks you through what the evidence does
-   and does not establish.
+   `reports/index.html` — a self-contained report with the four pipeline
+   stages (policy findings grouped by theme, adversarial scenarios with
+   their policy traces, the replay transcript, and each evaluation's verdict
+   with the judge's confidence and reasoning), plus a fifth **Run audit**
+   tab showing the decision journal, reviews and stage attempts. Stages that
+   a design-time run does not reach are shown disabled, not omitted. The
+   agent walks you through what the evidence does and does not establish.
 
 Any time you want to check state, ask ("what's the status of the run?") —
 the agent calls `asago-runner status` and reads it back to you.
@@ -196,7 +199,7 @@ default under `~/.asago/runs/<label>`, outside this repository):
 
 ```
 ~/.asago/runs/<label>/
-  reports/index.html      ← start here: offline overview, escaped content
+  reports/index.html      ← start here: offline report, escaped content
   reports/summary.json    ← machine-readable funnel + verdicts
   decisions.jsonl         ← every human decision and deviation, append-only
   run.json                ← identities, config snapshot, stage/attempt records

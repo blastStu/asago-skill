@@ -1483,19 +1483,46 @@ def watch(
 
 
 @app.command()
-def report(run_dir: Annotated[str, typer.Argument(help="Run directory")]):
-    """Derive summary.json and render the offline HTML overview."""
+def report(
+    run_dir: Annotated[str, typer.Argument(help="Run directory")],
+    conversation: Annotated[
+        str | None,
+        typer.Option(
+            "--conversation",
+            help=(
+                "Optional transcript of the session that ran the skill "
+                "(Markdown or text). Defaults to reports/conversation.md in "
+                "the run when present."
+            ),
+        ),
+    ] = None,
+):
+    """Derive summary.json and render the offline HTML run report."""
+    from .hashing import sha256_file
     from .reporting import build_summary, render_html
 
     run = _load_run(run_dir)
     with run.locked(f"report pid={__import__('os').getpid()}"):
         summary = build_summary(run)
-        html_path = render_html(run, summary)
+        transcript = None
+        source = (
+            Path(conversation).expanduser()
+            if conversation
+            else run.path / "reports" / "conversation.md"
+        )
+        if source.is_file():
+            transcript = source.read_text(encoding="utf-8", errors="replace")
+            summary["conversation"] = {
+                "source": source.name,
+                "sha256": sha256_file(source),
+            }
+        html_path = render_html(run, summary, transcript)
         run.rebuild_inventory()
         return Outcome("report", run_dir).finish(
             COMPLETED,
             summary=run.rel(run.path / "reports" / "summary.json"),
             html=run.rel(html_path),
+            conversation_included=bool(transcript),
         )
 
 

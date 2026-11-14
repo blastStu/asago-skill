@@ -25,6 +25,7 @@ optional later.
 | asago-artifact-generator | `8f481944fd7abd72cd131c14ee9ab366d8d98372` | 0.1.0 | upstream `main` commit (merge of PR #7); **PR #8 (`a7c586b7…`) NOT adopted** — structural validation only, recorded human fidelity assessment |
 | garak (trustyai-explainability fork) | `06aba1a2c9b142d561eeeff08dfaffcbe77487c3` | 0.15.0.post1.dev2+rhaiv.5 | PR #11 head, **open/unmerged** when adopted; supplies `probes.injection.IndirectInjection` and `detectors.injection_judge.InjectionJudge` |
 | ai-atlas-nexus | `c7a53040c45761376993386b0416a2b977591426` | 1.2.5 | pinned via `tool.uv.override-dependencies` because the mapper declares floating `@main`; this is the commit the pinned mapper revision's own `uv.lock` validated |
+| report theme mapping | `d2423c7bf12432f44fab6963f497dc7f975c7c26` (asago-policy-mapper PR #79 head; **open/unmerged** when adopted) | report navigation v1 | The runner vendors only `data/report_themes.yaml` (curated theme labels and category→theme links) for the offline report's theme grouping; it joins through the mapper's own SSSOM mapping. No mapper source is modified or monkeypatched. SHA-256 `0d49cb179e8f067c4826dde7070891dceef56c6f95c5e8e69b964d537badc240`. |
 
 No Asago source repository is modified. No fork branches are tracked; only
 immutable commits. The reference demo (`MuneezaAzmat/asago-examples`

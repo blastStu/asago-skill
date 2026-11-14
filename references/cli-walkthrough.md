@@ -299,7 +299,7 @@ $ .venv/bin/asago-runner report demo-run
 {"stage": "report", "status": "completed",
  "summary": "reports/summary.json", "html": "reports/index.html"}
 
-$ open demo-run/reports/index.html     # offline, escaped, no scripts
+$ open demo-run/reports/index.html     # offline, escaped, one inline script (no network)
 
 $ .venv/bin/asago-runner verify-run demo-run
 {"stage": "verify-run", "status": "completed", "problems": [],
