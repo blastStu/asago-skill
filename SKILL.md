@@ -74,11 +74,20 @@ greeting.
 .venv/bin/asago-runner plan --subject proposed   # design-time journey
 ```
 
-and show its output **verbatim**. Do not paraphrase, reorder, drop the
-owner tags, or add steps — the plan is identical for every user and every
-session by design, so the journey can never be misdescribed. Pick
-`proposed` once the user has answered the built-vs-proposed question;
-`built` is the safe default for the very first message. If the user's
+Then **paste the complete output into your own chat message, verbatim.**
+Tool output is not the conversation: in Claude Code it is shown in a
+collapsible/truncated box that the user may not read. Do not say "see the
+plan above", do not summarise it, and do not rely on the command block to
+carry it. Your message must literally contain the greeting, every numbered
+line with its icon and `[TAG]`, the "In short…" line, the decision line and
+the full legend. If any numbered step is missing from your message, you
+have not shown the plan.
+
+Do not paraphrase, reorder, drop the owner tags, or add steps — the plan is
+identical for every user and every session by design, so the journey can
+never be misdescribed. Pick `proposed` once the user has answered the
+built-vs-proposed question; `built` is the safe default for the very first
+message. If the user's
 language is not English, translate it faithfully — keep the numbering,
 the `[TAG]` markers and the order exactly — and say that you have
 translated it.
@@ -120,8 +129,9 @@ translated it.
   reformat it for the user: 🟢 running/progressing/done, 🟡
   retrying/stalled/waiting on review, 🔴 failed/blocked. `--follow` emits a heartbeat every interval even when
   nothing changes, so a long single model call never looks like silence.
-  **Relay each line to the user immediately** and say what it means. Treat
-  `retrying`, `stalled` and `failed` as report-now events. Do not wait for
+  **Paste each line into your chat message immediately** (again, do not
+  rely on the tool-output box) and say what it means. Treat `retrying`,
+  `stalled` and `failed` as report-now events. Do not wait for
   the stage to finish and do not wait for the user to ask what is happening.
   The user must get an update within roughly 30 seconds of the stage
   starting, and regularly thereafter. If your harness notifies you that the
@@ -130,8 +140,9 @@ translated it.
   what was excluded and why, then show the checklist and say what's next.
 
 **3. Show the checklist after every stage.** Run
-`.venv/bin/asago-runner status <run>` and quote its progress block
-verbatim — it is the canonical checklist:
+`.venv/bin/asago-runner status <run>` and **paste its progress block into
+your chat message** verbatim — the command output alone does not reach the
+user in a readable form. It is the canonical checklist:
 
 ```
 Asago run progress (run 4b6f65df5ab1):
