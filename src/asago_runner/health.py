@@ -276,11 +276,31 @@ def _recent_retry(text: str) -> bool:
     return bool(_RETRY_RE.search(tail))
 
 
+_HEALTH_ICONS = {
+    "running": "🟢",
+    "done": "🟢",
+    "retrying": "🟡",
+    "stalled": "🟡",
+    "needs_review": "🟡",
+    "unknown": "🟡",
+    "stopped": "🟡",
+    "no-attempt": "🟡",
+    "failed": "🔴",
+    "blocked": "🔴",
+}
+
+
 def render_health(summary: dict[str, Any]) -> str:
-    """One-line, human-readable health for an agent to relay verbatim."""
+    """One-line, human-readable health for an agent to relay verbatim.
+
+    A leading icon gives agents and users the same at-a-glance convention:
+    green = healthy/progressing/done, amber = retrying/stalled/waiting on
+    review, red = failed/blocked.
+    """
     stage = summary.get("stage") or "stage"
     health = summary.get("health")
-    parts = [f"[asago-runner] {stage}: {health}"]
+    icon = _HEALTH_ICONS.get(health, "🟡")
+    parts = [f"{icon} [asago-runner] {stage}: {health}"]
     if summary.get("attempt"):
         parts.append(f"attempt {summary['attempt']}")
     if summary.get("elapsed_seconds") is not None:

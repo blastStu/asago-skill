@@ -117,7 +117,7 @@ class TestClassification:
         _attempt(run, pid=999999, log=FAILED_LOG, status="failed")
         rendered = render_health(summarize_attempt(run, "map"))
         assert "\n" not in rendered
-        assert rendered.startswith("[asago-runner] policy-mapper: failed")
+        assert rendered.startswith("🔴 [asago-runner] policy-mapper: failed")
         assert "APIConnectionError" in rendered
 
 

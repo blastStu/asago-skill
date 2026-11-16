@@ -114,9 +114,11 @@ translated it.
      seconds (a `sleep 25` between calls is fine). Each call returns one
      canonical line.
 
-  Either way the line carries health (`running`, `retrying`, `stalled`,
-  `failed`, `done`, `needs_review`), elapsed time, retry/error counts and
-  the last milestone. `--follow` emits a heartbeat every interval even when
+  Either way the line carries a status icon and health (`running`,
+  `retrying`, `stalled`, `failed`, `done`, `needs_review`), elapsed time,
+  retry/error counts and the last milestone. Keep the convention when you
+  reformat it for the user: 🟢 running/progressing/done, 🟡
+  retrying/stalled/waiting on review, 🔴 failed/blocked. `--follow` emits a heartbeat every interval even when
   nothing changes, so a long single model call never looks like silence.
   **Relay each line to the user immediately** and say what it means. Treat
   `retrying`, `stalled` and `failed` as report-now events. Do not wait for
