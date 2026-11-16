@@ -1521,7 +1521,14 @@ def _render_audit(data: dict, summary: dict, conversation: str | None) -> str:
         )
         for a in attempts
     ) or "<p class='empty'>No stage attempts recorded.</p>"
-    scope_html = " · ".join(f"{_esc(k)}: {_esc(v)}" for k, v in scope.items() if v is not None)
+    scope_bits = [
+        f"{_esc(k)}: {_esc(v)}" for k, v in scope.items() if v is not None
+    ]
+    deadline = scope.get("stage_deadline_seconds")
+    scope_bits.append(
+        f"stage deadline: {_esc(deadline)}s" if deadline else "no stage deadline"
+    )
+    scope_html = " · ".join(scope_bits)
     conversation_html = ""
     if conversation:
         conversation_html = (

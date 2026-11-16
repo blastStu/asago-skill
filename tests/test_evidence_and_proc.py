@@ -91,6 +91,17 @@ class TestSubprocess:
         assert "SECRET_TOKEN" not in seen
         assert "MY_STAGE_KEY" in seen
 
+    def test_no_deadline_waits_for_completion(self, tmp_path):
+        proc = run_subprocess(
+            [sys.executable, "-c", "import time; time.sleep(1); print('done')"],
+            cwd=tmp_path, deadline_seconds=None,
+            env_extra=None,
+            stdout_path=tmp_path / "out.log", stderr_path=tmp_path / "err.log",
+        )
+        assert proc.returncode == 0
+        assert proc.timed_out is False
+        assert "done" in Path(proc.stdout_path).read_text()
+
     def test_deadline_kills_process_group(self, tmp_path):
         start = time.monotonic()
         proc = run_subprocess(

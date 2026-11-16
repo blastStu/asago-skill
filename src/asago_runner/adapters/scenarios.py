@@ -246,7 +246,11 @@ def run_generate(
         env["ASAGO_SCENARIO_GENERATOR_MAX_COMPLETION_TOKENS"] = str(
             options["scenario_max_completion_tokens"]
         )
-    env["ASAGO_SCENARIO_GENERATOR_TIMEOUT"] = str(min(config.stage_deadline_seconds, 300))
+    env["ASAGO_SCENARIO_GENERATOR_TIMEOUT"] = str(
+        min(config.stage_deadline_seconds, 300)
+        if config.stage_deadline_seconds is not None
+        else 300
+    )
     proc = run_subprocess(
         argv,
         cwd=attempt_dir,

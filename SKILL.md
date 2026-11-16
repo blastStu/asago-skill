@@ -96,31 +96,34 @@ translated it.
   artifacts, evaluate) take minutes and can hit transient connection
   errors, retry storms or stalls that the component does not announce.
 
-  Run the stage with your harness's background-execution facility. Then
-  keep a **foreground progress loop** — do not launch a background watcher
-  and simply wait for it to notify you: many harnesses only reveal a
-  background task's output when the task ends, so the user sees silence.
+  Run the stage in the background, then make its progress **arrive without
+  the user asking**. Background output is not streamed by every harness — in
+  Claude Code, a background Bash task's output file is only delivered when
+  the task ends — so do not launch `watch --follow` into a background task
+  and assume you will see it. Pick the mechanism your harness actually
+  supports:
 
-  ```bash
-  .venv/bin/asago-runner watch <run> --stage <stage>
-  ```
+  1. **Preferred, if available: a streaming monitor.** Run the watcher
+     through the harness's notification/monitor facility, e.g. in Claude
+     Code the `Monitor` tool on:
+     `.venv/bin/asago-runner watch <run> --stage <stage> --follow --interval 30`.
+     Each emitted line becomes a message to you; relay it. Never pipe the
+     watcher through `head`/`tail -f` — those end or buffer and go silent.
+  2. **Otherwise: a foreground polling loop.** Call
+     `.venv/bin/asago-runner watch <run> --stage <stage>` every ~20–30
+     seconds (a `sleep 25` between calls is fine). Each call returns one
+     canonical line.
 
-  Call that every ~20–30 seconds while the stage runs; each call returns
-  one canonical line — health (`running`, `retrying`, `stalled`, `failed`,
-  `done`, `needs_review`), elapsed time, retry/error counts and the last
-  meaningful milestone (for example a grounding-chunk count). **Relay each
-  line to the user immediately** and say what it means. Treat `retrying`,
-  `stalled` and `failed` as report-now events. Do not wait for the stage to
-  finish and do not wait for the user to ask what is happening.
-
-  If your harness *does* stream background-task output to you (a monitor or
-  message facility), you may instead run
-  `.venv/bin/asago-runner watch <run> --stage <stage> --follow --interval 30`
-  and relay each line as it arrives; `--follow` exits on any terminal state,
-  including `needs_review`. Either way, the user must get an update within
-  roughly 30 seconds of the stage starting, and regularly thereafter. If
-  your harness notifies you that the background stage task exited, relay its
-  outcome immediately.
+  Either way the line carries health (`running`, `retrying`, `stalled`,
+  `failed`, `done`, `needs_review`), elapsed time, retry/error counts and
+  the last milestone. `--follow` emits a heartbeat every interval even when
+  nothing changes, so a long single model call never looks like silence.
+  **Relay each line to the user immediately** and say what it means. Treat
+  `retrying`, `stalled` and `failed` as report-now events. Do not wait for
+  the stage to finish and do not wait for the user to ask what is happening.
+  The user must get an update within roughly 30 seconds of the stage
+  starting, and regularly thereafter. If your harness notifies you that the
+  background stage task exited, relay its outcome immediately.
 - *After:* the outcome in plain language (not raw JSON): what was found,
   what was excluded and why, then show the checklist and say what's next.
 
@@ -249,6 +252,12 @@ agent-drafted in the decision journal. Never generate these files silently.
   them export the env vars it names. Ask whether concerns are missing from
   the policy; any supplement is a draft the user must verify before use.
 - **Run scope**: which risks/surfaces, generation limits, target samples.
+- **Stage time limit (optional — ask explicitly)**: "Is there an upper bound
+  on how long one stage may run?" **The default is no deadline**; a local or
+  shared endpoint can legitimately take hours. Set
+  `scope.stage_deadline_seconds` only when the user names a number (seconds),
+  and say plainly that the runner will kill that stage at the limit and keep
+  partial evidence. Do not impose an hour "to be safe".
 - **Optional — reviewed typed tool schemas**: if your system declares tools
   in the artifact's conversation, you may supply a JSON file with a
   top-level `tools` list (OpenAI function-tool objects) so the replayed
@@ -316,7 +325,8 @@ Stage-specific narration cues (say these in your own words):
   knowledge-base feed, for example, must not be silently turned into a
   plain chat message)."
 - **evaluate** — "sending the approved replay to your target and judging
-  the response. One artifact at a time, under a deadline."
+  the response. One artifact at a time" plus, only if the user set one,
+  "under the time limit you set".
 
 Notes:
 

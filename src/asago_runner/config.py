@@ -83,7 +83,10 @@ class RunConfig:
     max_scenarios_per_pattern: int | None = 2
     max_artifacts: int = 3
     target_samples_per_artifact: int = 1
-    stage_deadline_seconds: int = 3600
+    # Optional upper bound for one stage attempt. None means no deadline:
+    # the stage runs until the component finishes. A local endpoint can take
+    # hours; killing it at a default hour is a data-loss event, not a guard.
+    stage_deadline_seconds: int | None = None
     ocr: bool = False
     telemetry_enabled: bool = True
     tools_schema_file: str | None = None
@@ -179,7 +182,22 @@ class RunConfig:
         cfg.max_scenarios_per_pattern = scope.get("max_scenarios_per_pattern", 2)
         cfg.max_artifacts = int(scope.get("max_artifacts", 3))
         cfg.target_samples_per_artifact = int(scope.get("target_samples_per_artifact", 1))
-        cfg.stage_deadline_seconds = int(scope.get("stage_deadline_seconds", 3600))
+        deadline = scope.get("stage_deadline_seconds")
+        if deadline in (None, "", 0, "none", "unlimited"):
+            cfg.stage_deadline_seconds = None
+        else:
+            try:
+                cfg.stage_deadline_seconds = int(deadline)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(
+                    "scope.stage_deadline_seconds must be a positive integer "
+                    "or null (no deadline)"
+                ) from exc
+            if cfg.stage_deadline_seconds <= 0:
+                raise ConfigError(
+                    "scope.stage_deadline_seconds must be a positive integer "
+                    "or null (no deadline)"
+                )
 
         options = raw.get("options") or {}
         cfg.ocr = bool(options.get("ocr", False))

@@ -159,9 +159,10 @@ summarization from native attempt rows, config-root plugin wiring
   configuration through their public interfaces; model-call evidence is
   "as captured by the component" (`llm_calls` written at completion — a
   crash loses it and the runner says so).
-- Scenario Generator requests have a 300 s application deadline (runner
-  passes the stage deadline capped at 300 s); SDK implicit retries are
-  disabled by that component.
+- Scenario Generator requests have a 300 s application deadline (the runner
+  passes its own stage deadline capped at 300 s, or 300 s when no stage
+  deadline is configured); SDK implicit retries are disabled by that
+  component.
 - The mapper's annotation view covers only the first document; the HTML
   overview links evidence for all inputs and states that limitation.
 - Structural validation of artifacts does not establish semantic fidelity
@@ -176,5 +177,6 @@ summarization from native attempt rows, config-root plugin wiring
   surface; tool-return live coverage is conditional on a reviewed carrier
   and endpoint support (offline adapter path is tested).
 - No OSCAL export (Phase 2). Evidence retains what OSCAL will need.
-- Runner concurrency one; bounded stage deadlines; deterministic selection
+- Runner concurrency one; optional stage deadlines (default none — a stage
+  runs until the component finishes); deterministic selection
   before target evaluation (never select/retry toward a preferred verdict).

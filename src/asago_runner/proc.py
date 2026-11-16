@@ -58,7 +58,7 @@ TERMINATION_GRACE_SECONDS = 10.0
 class ProcResult:
     command: list[str]
     cwd: str
-    deadline_seconds: float
+    deadline_seconds: float | None
     returncode: int | None
     timed_out: bool
     started_at: str
@@ -120,7 +120,7 @@ def run_subprocess(
     argv: list[str],
     *,
     cwd: str | Path,
-    deadline_seconds: float,
+    deadline_seconds: float | None,
     env_extra: Mapping[str, str] | None = None,
     stdout_path: str | Path,
     stderr_path: str | Path,
@@ -178,6 +178,9 @@ def run_subprocess(
                 proc.wait(timeout=1.0)
                 break
             except subprocess.TimeoutExpired:
+                if deadline_seconds is None:
+                    # No upper bound: keep waiting for the component.
+                    continue
                 elapsed = time.monotonic() - start_mono
                 if elapsed >= deadline_seconds:
                     timed_out = True

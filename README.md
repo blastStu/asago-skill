@@ -104,7 +104,8 @@ libraries need, in this order:
    asks which takes precedence; reconciliation is built from verbatim
    passages with a machine-checked span map.
 5. **Evaluation and results**: after you approve the test plan, the agent
-   runs Garak (one artifact per subprocess, under a deadline), then opens
+   runs Garak (one artifact per subprocess; a time limit only if you set one),
+   then opens
    `reports/index.html` — a self-contained report with the four pipeline
    stages (policy findings grouped by theme, adversarial scenarios with
    their policy traces, the replay transcript, and each evaluation's verdict
@@ -182,7 +183,8 @@ A run configuration is a small secret-free YAML file
   e.g. `target: {base_url_env: TARGET_BASE_URL, model_env: TARGET_MODEL,
   api_key_env: TARGET_API_KEY}`. Export those before running stages.
 - **Scope**: selected risk IDs (or all), bounded generation mode, artifact
-  cap, samples per artifact, stage deadline.
+  cap, samples per artifact, and an optional stage time limit (no deadline by
+  default).
 - **Subject status**: `run.subject: built` (default — full chain including
   evaluation) or `proposed` (design-time run: stops after the Scenario
   Generator and reports the threat picture; artifact/target/judge

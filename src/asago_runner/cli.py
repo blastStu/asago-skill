@@ -1450,6 +1450,7 @@ def watch(
     terminal = {"failed", "blocked", "needs_review", "done", "stopped"}
     start = time.monotonic()
     last_key = None
+    last_printed = 0.0
     summary: dict = {}
     while True:
         summary = summarize_attempt(run, stage or None, stall_seconds=stall_seconds)
@@ -1459,9 +1460,13 @@ def watch(
             summary.get("retry_count"),
             summary.get("error_count"),
         )
-        if key != last_key:
+        now = time.monotonic()
+        # Print on a change *and* as a heartbeat every interval, so a long
+        # single model call never looks like silence to a watcher.
+        if key != last_key or now - last_printed >= max(5, interval):
             print(render_health(summary), flush=True)
             last_key = key
+            last_printed = now
         if summary.get("health") in terminal:
             break
         if time.monotonic() - start >= timeout_seconds:

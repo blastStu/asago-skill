@@ -1226,3 +1226,45 @@ class TestReviewRegressionFixes:
         assert code == 2
         assert "needs_review" in stdout
         assert payload["health"] == "needs_review"
+
+
+class TestOptionalStageDeadline:
+    def _cfg(self, tmp_path, scope_line):
+        cfg = _write_config(tmp_path, ["# Policy\n\nData must be protected."])
+        text = cfg.read_text()
+        cfg.write_text(text + ("\nscope:\n" + scope_line if scope_line else ""))
+        return cfg
+
+    def test_absent_and_null_mean_no_deadline(self, tmp_path):
+        from asago_runner.config import RunConfig
+
+        assert RunConfig.load(self._cfg(tmp_path, "")).stage_deadline_seconds is None
+        assert (
+            RunConfig.load(
+                self._cfg(tmp_path, "  stage_deadline_seconds: null\n")
+            ).stage_deadline_seconds
+            is None
+        )
+        assert (
+            RunConfig.load(
+                self._cfg(tmp_path, "  stage_deadline_seconds: 0\n")
+            ).stage_deadline_seconds
+            is None
+        )
+
+    def test_explicit_number_is_kept(self, tmp_path):
+        from asago_runner.config import RunConfig
+
+        cfg = RunConfig.load(
+            self._cfg(tmp_path, "  stage_deadline_seconds: 900\n")
+        )
+        assert cfg.stage_deadline_seconds == 900
+
+    def test_negative_or_text_is_rejected(self, tmp_path):
+        from asago_runner.config import ConfigError, RunConfig
+
+        for value in ("-5", "'soon'"):
+            with pytest.raises(ConfigError, match="stage_deadline_seconds"):
+                RunConfig.load(
+                    self._cfg(tmp_path, f"  stage_deadline_seconds: {value}\n")
+                )

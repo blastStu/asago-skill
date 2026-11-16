@@ -26,7 +26,9 @@ hashes. Present:
 - the data-flow table and ask explicitly: *are these destinations
   acceptable for this material?* A labelled synthetic/public policy is the
   default unless the user has approved destinations for their own material;
-- the scope (risk selection, generation limits, target samples, deadlines)
+- the scope (risk selection, generation limits, target samples, and the
+  optional stage time limit — say explicitly when there is **no deadline**,
+  which is the default)
   and the native retry limitations;
 - any **advisories** from preflight (the request's `advisories` list). In
   particular, when no capability profile is supplied, say plainly that an

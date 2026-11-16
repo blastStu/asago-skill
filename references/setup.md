@@ -151,7 +151,8 @@ unaffected. Content (prompts, responses, policy text) is never exported.
 
 Components run as subprocesses with an environment **allowlist** (platform
 basics plus exactly the variables each stage needs), a clean working
-directory, and a parent-enforced wall-clock deadline with process-group
+directory, and an optional parent-enforced wall-clock deadline (none by
+default) with process-group
 cleanup. Unrelated provider keys cannot leak into or reroute a stage, and
 the Artifact Generator's `.env` auto-discovery finds nothing: its
 code-root location resolves inside the managed venv (no `.env`) and the

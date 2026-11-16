@@ -98,7 +98,11 @@ scope:
   max_scenarios_per_pattern: 2
   max_artifacts: 3
   target_samples_per_artifact: 1
-  stage_deadline_seconds: 3600
+  # Optional upper bound for one stage attempt, in seconds. null (default)
+  # means no deadline: a slow local endpoint may take hours. Set a number
+  # only if the user asked for a time limit; the runner will kill the stage
+  # at that point and retain partial evidence.
+  stage_deadline_seconds: null
 
 options:
   ocr: false
