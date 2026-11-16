@@ -1289,3 +1289,41 @@ class TestMapperConcurrencyReview:
         )
         assert request["summary"]["options"]["mapper_max_concurrent"] == 4
         assert request["summary"]["scope"]["stage_deadline_seconds"] is None
+
+
+class TestReportInputs:
+    def test_report_links_the_retained_inputs(self, tmp_path):
+        from asago_runner.reporting import build_summary, render_html
+
+        run = RunDir.create(tmp_path / "inputs")
+        policy = run.path / "originals" / "policies" / "policy.md"
+        policy.parent.mkdir(parents=True)
+        policy.write_text("# Retention policy\n\nKeep records for seven years.\n")
+        use_case = run.path / "originals" / "system" / "use-case.md"
+        use_case.parent.mkdir(parents=True)
+        use_case.write_text("# Use case\n\nA student chatbot.\n")
+        sssom = run.path / "originals" / "sssom" / "mapping.tsv"
+        sssom.parent.mkdir(parents=True)
+        sssom.write_text("subject_id\tsubject_source\n")
+
+        run.update_manifest(lambda m: m.update({
+            "subject": "proposed",
+            "policy_originals": ["originals/policies/policy.md"],
+            "config_snapshot": {
+                "raw_non_secret": {
+                    "policy": {"documents": [{"path": "policy/policy.md"}]},
+                    "system": {"use_case_file": "system/use-case.md"},
+                    "sssom": {"path": "mappings/mapping.tsv"},
+                },
+                "options": {},
+            },
+        }))
+        summary = build_summary(run)
+        render_html(run, summary)
+        html = (run.path / "reports" / "index.html").read_text()
+        assert "Inputs used in this run" in html
+        assert "href='../originals/policies/policy.md'" in html
+        assert "href='../originals/system/use-case.md'" in html
+        assert "href='../originals/sssom/mapping.tsv'" in html
+        assert "Keep records for seven years." in html
+        assert "sha256 " in html

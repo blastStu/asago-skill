@@ -680,6 +680,124 @@ def _collect_evaluations(
     return {"evaluations": evaluations, "counts": dict(outcomes)}
 
 
+def _human_size(value: int | None) -> str:
+    if value is None:
+        return ""
+    size = float(value)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return ""
+
+
+def _input_preview(path: Path) -> str | None:
+    if path.suffix.lower() not in (".md", ".txt", ".yaml", ".yml", ".json", ".tsv"):
+        return None
+    try:
+        parts: list[str] = []
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            text = line.strip().lstrip("#").strip()
+            if text:
+                parts.append(text)
+            if len(parts) == 2:
+                break
+        return (" · ".join(parts))[:180] or None
+    except OSError:
+        return None
+
+
+def _retained_input(
+    run: RunDir, manifest: dict, config_rel: str | None, subdir: str
+) -> Path | None:
+    """Locate an input's retained copy under originals/."""
+    candidates: list[Path] = []
+    mapped = (manifest.get("originals_map") or {}).get(config_rel) if config_rel else None
+    if mapped:
+        candidate = Path(str(mapped)).expanduser()
+        if candidate.is_absolute():
+            try:
+                candidates.append(run.path / candidate.resolve().relative_to(run.path.resolve()))
+            except (ValueError, OSError):
+                candidates.append(run.path / "originals" / subdir / candidate.name)
+        else:
+            candidates.append(run.path / candidate)
+    if config_rel:
+        candidates.append(run.path / "originals" / subdir / Path(config_rel).name)
+        candidates.append(run.path / "originals" / config_rel)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _collect_inputs(run: RunDir, manifest: dict) -> list[dict[str, Any]]:
+    """The retained copies of every input the operator supplied."""
+    snapshot = (manifest.get("config_snapshot") or {}).get("raw_non_secret") or {}
+    receipts = _read_json(run.path / "derived" / "intake-receipts.json", []) or []
+    receipt_by_name = {
+        Path(str(item.get("source") or "")).name: item
+        for item in receipts
+        if isinstance(item, dict)
+    }
+    inputs: list[dict[str, Any]] = []
+
+    def add(
+        kind: str,
+        config_rel: str | None,
+        subdir: str,
+        *,
+        path: Path | None = None,
+    ) -> None:
+        target = path or _retained_input(run, manifest, config_rel, subdir)
+        if target is None or not target.is_file():
+            return
+        record: dict[str, Any] = {
+            "kind": kind,
+            "name": target.name,
+            "path": run.rel(target),
+            "bytes": target.stat().st_size,
+            "sha256": _sha256(target),
+            "preview": _input_preview(target),
+        }
+        receipt = receipt_by_name.get(target.name)
+        if receipt:
+            record["parsed_chars"] = receipt.get("parsed_chars")
+            record["parsed_words"] = receipt.get("parsed_words")
+            record["parse_status"] = receipt.get("status")
+        inputs.append(record)
+
+    policy_docs = ((snapshot.get("policy") or {}).get("documents") or [])
+    for index, rel in enumerate(manifest.get("policy_originals") or []):
+        config_rel = (
+            policy_docs[index].get("path")
+            if index < len(policy_docs) and isinstance(policy_docs[index], dict)
+            else None
+        )
+        add("Policy", config_rel, "policies", path=run.path / rel)
+    if not any(item["kind"] == "Policy" for item in inputs):
+        for policy in sorted((run.path / "originals" / "policies").glob("*")):
+            if policy.is_file():
+                add("Policy", None, "policies", path=policy)
+    system = snapshot.get("system") or {}
+    add("Use case", system.get("use_case_file"), "system")
+    add("Capability profile", system.get("profile_file"), "system")
+    add("Qualification facts", system.get("qualification_facts_file"), "system")
+    add("SSSOM mapping", (snapshot.get("sssom") or {}).get("path"), "sssom")
+    add(
+        "Reviewed tool schemas",
+        (snapshot.get("options") or {}).get("tools_schema_file"),
+        "tool-schemas",
+    )
+    add(
+        "Run configuration",
+        None,
+        "",
+        path=run.path / "originals" / "run-config.yaml",
+    )
+    return inputs
+
+
 def _collect_audit(run: RunDir, manifest: dict) -> dict[str, Any]:
     decisions = []
     journal = run.path / "decisions.jsonl"
@@ -766,6 +884,7 @@ def _collect_audit(run: RunDir, manifest: dict) -> dict[str, Any]:
             }
         )
     return {
+        "inputs": _collect_inputs(run, manifest),
         "decisions": decisions,
         "attempts": attempts,
         "reviews": reviews,
@@ -1522,13 +1641,44 @@ def _render_audit(data: dict, summary: dict, conversation: str | None) -> str:
         for a in attempts
     ) or "<p class='empty'>No stage attempts recorded.</p>"
     scope_bits = [
-        f"{_esc(k)}: {_esc(v)}" for k, v in scope.items() if v is not None
+        f"{_esc(k)}: {_esc(v)}"
+        for k, v in scope.items()
+        if v is not None and k != "stage_deadline_seconds"
     ]
     deadline = scope.get("stage_deadline_seconds")
     scope_bits.append(
         f"stage deadline: {_esc(deadline)}s" if deadline else "no stage deadline"
     )
     scope_html = " · ".join(scope_bits)
+    input_rows = []
+    for item in audit.get("inputs") or []:
+        facts = []
+        if item.get("bytes"):
+            facts.append(_human_size(item["bytes"]))
+        if item.get("parsed_chars"):
+            facts.append(f"{item['parsed_chars']:,} chars")
+        if item.get("parsed_words"):
+            facts.append(f"{item['parsed_words']:,} words")
+        if item.get("parse_status") and item["parse_status"] != "ok":
+            facts.append(f"parse: {item['parse_status']}")
+        if item.get("sha256"):
+            facts.append(f"sha256 {item['sha256'][:12]}…")
+        input_rows.append(
+            "<div class='input-row'>"
+            f"<span class='input-kind'>{_esc(item['kind'])}</span>"
+            "<div class='input-copy'>"
+            f"<a href='../{_esc(item['path'])}'>{_esc(item['name'])}</a>"
+            f"<small>{_esc(' · '.join(facts))}</small>"
+            + (
+                f"<p class='input-preview'>{_esc(item['preview'])}</p>"
+                if item.get("preview")
+                else ""
+            )
+            + "</div></div>"
+        )
+    inputs_html = "".join(input_rows) or (
+        "<p class='empty'>No retained input copies are recorded in this run.</p>"
+    )
     conversation_html = ""
     if conversation:
         conversation_html = (
@@ -1565,6 +1715,11 @@ def _render_audit(data: dict, summary: dict, conversation: str | None) -> str:
     <div class="audit-card"><span class="eyebrow">CONFIG HASH</span>
       <p class="mono break">{_esc(audit.get('config_sha256') or 'not recorded')}</p></div>
   </div>
+  <h3 class="audit-subhead" id="inputs-used">Inputs used in this run</h3>
+  <div class="inputs-list">{inputs_html}</div>
+  <p class="fineprint">Each link opens the retained copy under <span class="mono">originals/</span>.
+  These bytes are what the stages received; the SHA-256 shown is of the retained file.
+  Policy inputs also show the native parser's character/word counts.</p>
   <h3 class="audit-subhead">Timeline</h3>
   <ol class="timeline">{timeline_html or "<li>No decisions or attempts recorded.</li>"}</ol>
   <div class="audit-columns">
@@ -1931,6 +2086,18 @@ main { max-width: 1600px; margin: 0 auto; padding: 40px 4vw 24px; }
 .traceability strong { font-size: 24px; color: var(--secondary); min-width: 40px; }
 .traceability span { font-size: 12px; color: var(--muted); }
 .audit-intro { color: var(--muted); max-width: 60rem; }
+.inputs-list { display: grid; gap: 8px; }
+.input-row { display: grid; grid-template-columns: 150px 1fr; gap: 16px;
+  align-items: start; border: 1px solid var(--border); background: var(--subtle);
+  padding: 12px 16px; }
+.input-kind { font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--secondary); padding-top: 3px; }
+.input-copy { min-width: 0; }
+.input-copy a { font-weight: 600; overflow-wrap: anywhere; }
+.input-copy small { display: block; color: var(--muted); font-size: 11px;
+  margin-top: 3px; }
+.input-preview { color: var(--muted); font-size: 12px; margin: 5px 0 0;
+  overflow-wrap: anywhere; }
 .audit-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px; margin: 18px 0 26px; }
 .audit-card { border: 1px solid var(--border); background: var(--subtle); padding: 16px 18px; }
@@ -2035,7 +2202,10 @@ _JS = """
       link.addEventListener("click", function (event) {
         event.preventDefault();
         activate(link.getAttribute("data-panel-link"));
-        document.getElementById("panels").scrollIntoView({ behavior: "smooth" });
+        var target = link.getAttribute("data-scroll-target");
+        var destination = target ? document.getElementById(target)
+          : document.getElementById("panels");
+        if (destination) destination.scrollIntoView({ behavior: "smooth" });
       });
     }
   );
@@ -2253,6 +2423,8 @@ def render_page(
     <span class="asago-product">Run report</span></div>
   <nav class="top" aria-label="Report utilities">
     <button type="button" id="theme-toggle" class="quiet">Light mode</button>
+    <a class="quiet" href="#inputs-used" data-panel-link="audit"
+       data-scroll-target="inputs-used">Inputs used</a>
     <a class="quiet" href="#panel-audit" data-panel-link="audit">Run audit</a>
   </nav>
 </header>
