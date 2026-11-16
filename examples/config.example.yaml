@@ -115,6 +115,12 @@ options:
   # parameters stay unconstrained).
   # tools_schema_file: system/tool-schemas.json
 
+  # OPTIONAL: lower the Policy Mapper's parallel model calls (the component
+  # default is 32). Use this under network or provider rate-limit pressure;
+  # it trades throughput for a gentler request pattern. null = component
+  # default.
+  # mapper_max_concurrent: 4
+
 telemetry:
   # Runner/stage spans via standard OTEL_* settings (OTEL_EXPORTER_OTLP_ENDPOINT).
   enabled: true

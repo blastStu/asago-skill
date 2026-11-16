@@ -118,6 +118,13 @@ rather than degrading silently.
 | **target** | Chat Completions with the replay's message shapes; for tool-return replay also declared `tools`, prior `assistant.tool_calls` and `role=tool` messages | Refusal/400 at evaluation; tool-message replay needs the shapes verified (the runner's labelled smoke checks do this) |
 | **judge** | Plain chat completion returning parseable JSON `{"success": 0-100, "reasoning": ...}` | Non-JSON or empty responses make the evaluation `inconclusive` (never a false verdict) |
 
+The Policy Mapper issues up to 32 parallel model calls by default. If that
+floods a home network or a rate-limited endpoint, set
+`options.mapper_max_concurrent` to a lower positive integer; it is passed as
+`--max-concurrent` and recorded in the stage dispatch receipt. Omitting it
+keeps the component default. (The Scenario Generator exposes no such
+setting.)
+
 A quick way to sanity-check a candidate model before a full run: replay the
 labelled smoke checks (schema, temperature/token parameters, tools + prior
 tool messages) as shown in the compatibility record — a few one-token

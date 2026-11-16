@@ -1268,3 +1268,24 @@ class TestOptionalStageDeadline:
                 RunConfig.load(
                     self._cfg(tmp_path, f"  stage_deadline_seconds: {value}\n")
                 )
+
+
+class TestMapperConcurrencyReview:
+    def test_preflight_request_shows_the_throttle(self, tmp_path):
+        cfg = _write_config(tmp_path, ["# Policy\n\nData must be protected."])
+        cfg.write_text(
+            cfg.read_text() + "\noptions:\n  mapper_max_concurrent: 4\n"
+        )
+        env = {k: "placeholder" for k in "ABCDEFGHIJKLMNOPQRSTUV"}
+        run_dir = tmp_path / "throttle-run"
+        code, _, _, _ = _run(
+            "new-run", "--config", str(cfg), "--run-dir", str(run_dir), env_extra=env
+        )
+        assert code == 0
+        code, _, _, _ = _run("preflight", str(run_dir), env_extra=env)
+        assert code == 2
+        request = json.loads(
+            (run_dir / "reviews" / "input-readiness.request.json").read_text()
+        )
+        assert request["summary"]["options"]["mapper_max_concurrent"] == 4
+        assert request["summary"]["scope"]["stage_deadline_seconds"] is None

@@ -28,7 +28,8 @@ hashes. Present:
   default unless the user has approved destinations for their own material;
 - the scope (risk selection, generation limits, target samples, and the
   optional stage time limit — say explicitly when there is **no deadline**,
-  which is the default)
+  which is the default) and any configured options (for example a lowered
+  `mapper_max_concurrent` throttle, so the operator approves it knowingly)
   and the native retry limitations;
 - any **advisories** from preflight (the request's `advisories` list). In
   particular, when no capability profile is supplied, say plainly that an

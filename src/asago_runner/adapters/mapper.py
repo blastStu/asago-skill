@@ -83,6 +83,10 @@ def build_mapper_argv(
         ]
     if options.get("mapper_temperature") is not None:
         argv += ["--temperature", str(options["mapper_temperature"])]
+    # Optional network/rate-limit throttle. Omitting the flag preserves the
+    # component's own default (32 parallel calls).
+    if config.mapper_max_concurrent is not None:
+        argv += ["--max-concurrent", str(config.mapper_max_concurrent)]
     env: dict[str, str] = {}
     if not no_llm and conn.get("api_key"):
         env["POLICY_MAPPER_API_KEY"] = str(conn["api_key"])

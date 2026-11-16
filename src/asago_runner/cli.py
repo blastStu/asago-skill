@@ -370,6 +370,7 @@ def preflight(
             run,
             [(rel, "retained original input") for rel in _all_originals(run)],
         )
+        snapshot = cfg.sanitized_snapshot()
         request = ReviewRequest(
             kind="input-readiness",
             question=(
@@ -393,7 +394,8 @@ def preflight(
                 "advisories": report.get("advisories", []),
                 "data_flow": report["data_flow"],
                 "shared_model_roles": report["shared_model_roles"],
-                "scope": report.get("scope"),
+                "scope": snapshot["scope"],
+                "options": snapshot["options"],
             },
             request_path=run.path / "reviews" / "input-readiness.request.json",
             response_path=run.path / "reviews" / "input-readiness.response.json",

@@ -193,6 +193,11 @@ A run configuration is a small secret-free YAML file
 - **Options** for model-specific request shapes (for example
   `mapper_output_token_parameter: max_completion_tokens` and
   `mapper_temperature: 1.0` for models that reject the legacy parameters).
+  `mapper_max_concurrent` optionally lowers the Policy Mapper's parallel
+  model calls (component default 32) when the network or provider rate
+  limits are the constraint; omitting it leaves the default untouched. It
+  appears in the input-readiness request, and the exact flag is recorded in
+  the stage's dispatch receipt.
 
 The SSSOM risk-to-category mapping ships in `examples/mappings/` (copied
 from the pinned mapper).

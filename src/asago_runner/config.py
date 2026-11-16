@@ -90,6 +90,9 @@ class RunConfig:
     ocr: bool = False
     telemetry_enabled: bool = True
     tools_schema_file: str | None = None
+    # Optional throttle for the Policy Mapper's parallel model calls. None
+    # leaves the component's own default (32) untouched.
+    mapper_max_concurrent: int | None = None
 
     # -- loading ---------------------------------------------------------
 
@@ -203,6 +206,21 @@ class RunConfig:
         cfg.ocr = bool(options.get("ocr", False))
         cfg.telemetry_enabled = bool((raw.get("telemetry") or {}).get("enabled", True))
         cfg.tools_schema_file = options.get("tools_schema_file")
+        raw_mc = options.get("mapper_max_concurrent")
+        if raw_mc in (None, "", "none", "unlimited"):
+            cfg.mapper_max_concurrent = None
+        else:
+            try:
+                value = int(raw_mc)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(
+                    "options.mapper_max_concurrent must be a positive integer or null"
+                ) from exc
+            if value <= 0:
+                raise ConfigError(
+                    "options.mapper_max_concurrent must be a positive integer or null"
+                )
+            cfg.mapper_max_concurrent = value
         return cfg
 
     # -- accessors --------------------------------------------------------
@@ -247,6 +265,7 @@ class RunConfig:
             "options": {
                 "ocr": self.ocr,
                 "tools_schema_file": self.tools_schema_file,
+                "mapper_max_concurrent": self.mapper_max_concurrent,
             },
             "telemetry_enabled": self.telemetry_enabled,
             "raw_non_secret": _sanitize_value(raw),
