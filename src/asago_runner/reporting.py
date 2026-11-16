@@ -97,12 +97,35 @@ _WORK_DESCRIPTIONS = {
     "review": "a decision that belongs to you",
 }
 
+# Visual cues only; the text around them remains deterministic and quoted.
+_WORK_ICONS = {
+    "asago": "🧩",
+    "external": "🛡️",
+    "runner": "⚙️",
+    "review": "🙋",
+}
+
+_STEP_EMOJI = {
+    "setup": "🛠️",
+    "preflight": "🔎",
+    "input-review": "📄",
+    "intake": "📚",
+    "conflict": "⚖️",
+    "map": "🗺️",
+    "scenarios": "🎯",
+    "artifacts": "🧪",
+    "test-plan": "📝",
+    "evaluate": "🛡️",
+    "report": "📊",
+    "verify": "✅",
+}
+
 
 def _legend_for(owners) -> str:
     """A legend line listing only the owner tags actually in use."""
     order = ("asago", "external", "runner", "review")
     parts = [
-        f"{_WORK_TAGS[owner]} = {_WORK_DESCRIPTIONS[owner]}"
+        f"{_WORK_ICONS[owner]} {_WORK_TAGS[owner]} = {_WORK_DESCRIPTIONS[owner]}"
         for owner in order
         if owner in owners
     ]
@@ -347,7 +370,10 @@ def render_plan(subject: str = "built") -> str:
             detail = (
                 "the threat picture for your design, with the evidence trail"
             )
-        lines.append(f"{index}. {_WORK_TAGS[owner]} {title} — {detail}")
+        lines.append(
+            f"{index}. {_STEP_EMOJI.get(step, '•')} {_WORK_TAGS[owner]} "
+            f"{title} — {detail}"
+        )
     lines.append("")
     if proposed:
         lines.append(

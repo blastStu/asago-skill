@@ -1057,7 +1057,7 @@ class TestCanonicalPlan:
             assert marker in first, marker
         assert "Two steps always need decisions from you (2 and 8)" in first
         assert "step 4 only when several policies disagree" in first
-        assert "Labels: [ASAGO COMPONENT] = the real Asago library" in first
+        assert "🧩 [ASAGO COMPONENT] = the real Asago library" in first
 
     def test_proposed_plan_stops_after_scenarios(self):
         from asago_runner.reporting import render_plan
