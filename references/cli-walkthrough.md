@@ -3,7 +3,7 @@
 Every command below is real: the early-stage outputs were captured from a
 fresh run of the synthetic example, and the model-calling stage outputs come
 from the completed Phase 1 live run (now archived at
-`an archived run outside the repository`; trimmed for readability — the JSON
+an archived live run outside the repository; trimmed for readability — the JSON
 you see is what the runner prints, fields elided with `…`). No agent is
 involved anywhere in this session.
 
@@ -240,8 +240,8 @@ $ .venv/bin/asago-runner replay-review demo-run
    "summary": {
      "entries": [{"scenario_id": "scenario:v2:ebb738ad…", "surface": "user_turn",
                   "entry_sha256": "7a4e0b2b…"}],
-     "target": {"model": "the gateway model", "base_url_host": "…", …},
-     "judge":  {"model": "the gateway model", …},
+     "target": {"model": "<gateway-model>", "base_url_host": "…", …},
+     "judge":  {"model": "<gateway-model>", …},
      "shared_model_roles": [["artifact_llm", "judge", "target"]],
      "retry_disclosure": "Garak/SDK internal retries are not individually
        bounded; the runner adds no replay of its own; the parent deadline

@@ -300,7 +300,7 @@ at a time — narrating before, during and after each, and showing the
 ```bash
 # new-run creates an isolated run outside the repo and prints its path:
 .venv/bin/asago-runner new-run --config <config.yaml>
-# → {"run_dir": "/Users/…/.asago/runs/<label>", …}
+# → {"run_dir": "~/.asago/runs/<label>", …}
 RUN=<that path>   # use the printed run_dir for every later command
 .venv/bin/asago-runner preflight  $RUN      # → needs-review: input readiness
 # PRESENT the request (see below); after the user answers:

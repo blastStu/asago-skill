@@ -28,7 +28,7 @@ optional later.
 | report theme mapping | `d2423c7bf12432f44fab6963f497dc7f975c7c26` (asago-policy-mapper PR #79 head; **open/unmerged** when adopted) | report navigation v1 | The runner vendors only `data/report_themes.yaml` (curated theme labels and category→theme links) for the offline report's theme grouping; it joins through the run's own retained SSSOM mapping (resolved from `sssom.path` via the config snapshot and `originals_map`, with its path and hash shown), not a hardcoded filename. No mapper source is modified or monkeypatched. SHA-256 `0d49cb179e8f067c4826dde7070891dceef56c6f95c5e8e69b964d537badc240`. |
 
 No Asago source repository is modified. No fork branches are tracked; only
-immutable commits. The reference demo (`MuneezaAzmat/asago-examples`
+immutable commits. The reference demo (`asago-ai/asago-examples`
 `6fcb6ad6…`) was read for integration patterns but none of its runtime
 monkeypatching (generator wrapping, prompt patches) is used — see
 "Deviations from the reference demo".
@@ -76,32 +76,37 @@ at the input-readiness review for the concrete run.
 
 ## Live-run model contracts (configured gateway)
 
-The live smoke run uses an OpenAI-compatible gateway. Model-specific
-request contracts discovered through labelled smoke checks and live
-attempts:
+The live smoke run uses an OpenAI-compatible model gateway. The tested
+model identifiers and gateway hostnames are deliberately omitted from this
+public record; they remain in the run evidence and decision journal. The
+contracts discovered through labelled smoke checks and live attempts are
+recorded here by behaviour:
 
-- **a fast gateway model**: rejects `max_tokens` (requires `max_completion_tokens`)
-  and any `temperature` other than 1. The mapper
-  (`--output-token-parameter`, `--temperature`) and the Garak driver
+- **Legacy token/temperature parameters are not universal**: one gateway
+  model rejects `max_tokens` (requiring `max_completion_tokens`) and any
+  `temperature` other than 1. The mapper (`--output-token-parameter`,
+  `--temperature`) and the Garak driver
   (`ASAGO_GARAK_TOKEN_PARAM`/`ASAGO_GARAK_TEMPERATURE` with
   `suppressed_params`/`extra_params`) are configured accordingly.
-- **a fast gateway model and the scenario generator**: the generator's structured
-  output schemas use JSON Schema keywords (`maxProperties`) that the
-  gateway's OpenAI-strict `json_schema` validation rejects
+- **Strict schema validators reject the scenario schemas**: the generator's
+  structured-output schemas use JSON Schema keywords (`maxProperties`) that
+  an OpenAI-strict `json_schema` validator rejects
   (`BadRequestError 400: Invalid schema … 'maxProperties'`). The reference
   demo works around this by patching the schema at runtime — forbidden
-  here. Resolution: the scenario role uses a gateway model whose validator
-  accepts the native schemas unchanged. No source edits, no monkeypatching.
-- **a reasoning-heavy gateway model (`the gateway model`, user-selected free model)**: accepts
-  every request shape (all temperatures, both token parameters, strict
-  json_schema with `maxProperties`, tools/prior-tool-message replay) — but
-  its structured drafts for the scenario generator's semantic stages
-  exceed that component's **hardcoded per-call completion caps**
-  (`actor_profile`/`behavior_spec`/filter 4096, `narrative`/`attack_tree`
-  8192; `min(operation_cap, transport_cap)` — an operator transport cap
-  can only lower them). Two full attempts quarantined 10/10 candidates
-  with `CompletionLengthError`. a reasoning-heavy gateway model also ran the mapper ~4-5× slower
-  than a fast gateway model and exceeded a 3600 s stage deadline near completion.
+  here. Resolution: the scenario role uses a model whose validator accepts
+  the native schemas unchanged. No source edits, no monkeypatching.
+- **A reasoning-heavy model can exceed the component's hardcoded caps**:
+  one tested model accepted every request shape (all temperatures, both
+  token parameters, strict `json_schema` with `maxProperties`,
+  tools/prior-tool-message replay), but its structured drafts for the
+  scenario generator's semantic stages exceeded that component's
+  **hardcoded per-call completion caps** (`actor_profile`/`behavior_spec`/
+  filter 4096, `narrative`/`attack_tree` 8192;
+  `min(operation_cap, transport_cap)` — an operator transport cap can only
+  lower them). Two full attempts quarantined 10/10 candidates with
+  `CompletionLengthError`. That model also ran the mapper several times
+  slower than a fast gateway model and exceeded a 3600 s stage deadline
+  near completion.
 - **Inferred-only scenario runs can abort projection**: without a reviewed
   `system.profile_file`, the Scenario Generator's Stage-1 inference
   produces an `inferred_partial` profile that cannot supply Stage-2
@@ -111,26 +116,25 @@ attempts:
   specific abort into a `needs-review` outcome with the missing categories
   and a `profile-required` request (not a bare failure); preflight warns
   beforehand. Supply a reviewed profile to avoid the wasted mapper spend.
-- **Scenario role resolution (recorded deviation)**: with a reasoning-heavy gateway model
-  length-incompatible, a fast gateway model/a fast gateway model/a fast gateway model schema-rejected
-  (OpenAI-strict `maxProperties`), and every gateway Gemini model
+- **Scenario role resolution (recorded deviation)**: with the
+  reasoning-heavy model length-incompatible, several fast/compact models
+  schema-rejected (OpenAI-strict `maxProperties`), and Gemini-family models
   schema-rejected (Google path `INVALID_ARGUMENT` on the behavior-draft
   schema — the reference demo needed runtime schema surgery for Gemini,
-  which is forbidden here), the scenario role runs on
-  **`a compact gateway model`**: served on the same
-  `gateway/` route as the user-selected free a reasoning-heavy gateway model, accepts the exact
-  `BehaviorDraftV2For9Handles` schema (verified by labelled schema
-  replay), and produces concise drafts (296 completion tokens on the
-  minimal probe vs the 4096 cap). Flagged for user review on return.
+  which is forbidden here), the scenario role runs on a compact gateway
+  model that accepts the exact `BehaviorDraftV2For9Handles` schema
+  (verified by labelled schema replay) and produces concise drafts (296
+  completion tokens on the minimal probe vs the 4096 cap). Flagged for
+  user review on return.
 - **Artifact generator**: hardcodes `temperature=0.2` upstream with no
-  configuration; a fast gateway model/a fast gateway model reject non-default temperature. The
+  configuration; some gateway models reject non-default temperature. The
   artifact role therefore uses a model that accepts it.
-- **gpt-4o-mini**: accepted `json_schema` structured output, declared
-  `tools`, prior `assistant.tool_calls` and `role=tool` messages in the
-  labelled transport smoke checks (E5-adjacent; evidence retained with the
-  run).
+- **A public GPT-4o-class model**: accepted `json_schema` structured
+  output, declared `tools`, prior `assistant.tool_calls` and `role=tool`
+  messages in the labelled transport smoke checks (E5-adjacent; evidence
+  retained with the run).
 
-The target and judge share one model per the user's smoke-run choice —
+The target and judge shared one model per the user's smoke-run choice —
 recorded in every summary as a lack of independent validation.
 
 ## Deviations from the reference demo
