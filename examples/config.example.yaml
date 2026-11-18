@@ -121,6 +121,12 @@ options:
   # default.
   # mapper_max_concurrent: 4
 
+  # OPTIONAL: Scenario Generator wire-schema mode. "strict" strips
+  # validation-only JSON Schema keywords for OpenAI-strict validators while
+  # the component still validates locally; null/native keeps the component
+  # default.
+  # scenario_json_schema_compat: strict
+
 telemetry:
   # Runner/stage spans via standard OTEL_* settings (OTEL_EXPORTER_OTLP_ENDPOINT).
   enabled: true
