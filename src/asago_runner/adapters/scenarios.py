@@ -246,6 +246,10 @@ def run_generate(
         env["ASAGO_SCENARIO_GENERATOR_MAX_COMPLETION_TOKENS"] = str(
             options["scenario_max_completion_tokens"]
         )
+    if config.scenario_json_schema_compat:
+        env["ASAGO_SCENARIO_GENERATOR_JSON_SCHEMA_COMPAT"] = (
+            config.scenario_json_schema_compat
+        )
     env["ASAGO_SCENARIO_GENERATOR_TIMEOUT"] = str(
         min(config.stage_deadline_seconds, 300)
         if config.stage_deadline_seconds is not None

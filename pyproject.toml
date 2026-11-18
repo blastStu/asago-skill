@@ -8,8 +8,8 @@ license = "Apache-2.0"
 dependencies = [
     # Real Asago components, pinned to immutable commits (see
     # references/compatibility-record.md for status and provenance).
-    "asago-policy-mapper @ git+https://github.com/asago-ai/asago-policy-mapper.git@630c77c5f82938f1180fc313324e718c379f2abf",
-    "asago-scenario-generator @ git+https://github.com/asago-ai/asago-scenario-generator.git@98fba15de8162c8d064ebff1d381d13a62f49807",
+    "asago-policy-mapper @ git+https://github.com/blastStu/asago-policy-mapper.git@daf1e1b099392855e1ec9405d80f3bca19c3bf06",
+    "asago-scenario-generator @ git+https://github.com/blastStu/asago-scenario-generator.git@0f9a6aa1b7db0b2dc3a1a2fb38482618fd41484f",
     "asago-artifact-generator @ git+https://github.com/asago-ai/asago-artifact-generator.git@8f481944fd7abd72cd131c14ee9ab366d8d98372",
     # Runner-owned dependencies.
     "typer>=0.12",

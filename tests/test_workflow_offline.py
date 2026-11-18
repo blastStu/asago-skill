@@ -1327,3 +1327,34 @@ class TestReportInputs:
         assert "href='../originals/sssom/mapping.tsv'" in html
         assert "Keep records for seven years." in html
         assert "sha256 " in html
+
+
+class TestScenarioSchemaCompatOption:
+    def _cfg(self, tmp_path, value):
+        cfg = _write_config(tmp_path, ["# Policy\n\nData must be protected."])
+        cfg.write_text(
+            cfg.read_text()
+            + "\noptions:\n  scenario_json_schema_compat: "
+            + value
+            + "\n"
+        )
+        return cfg
+
+    def test_absent_and_native_leave_component_default(self, tmp_path):
+        from asago_runner.config import RunConfig
+
+        assert RunConfig.load(self._cfg(tmp_path, "null")).scenario_json_schema_compat is None
+        assert RunConfig.load(self._cfg(tmp_path, "native")).scenario_json_schema_compat is None
+
+    def test_strict_is_recorded(self, tmp_path):
+        from asago_runner.config import RunConfig
+
+        cfg = RunConfig.load(self._cfg(tmp_path, "strict"))
+        assert cfg.scenario_json_schema_compat == "strict"
+        assert cfg.sanitized_snapshot()["options"]["scenario_json_schema_compat"] == "strict"
+
+    def test_invalid_mode_is_rejected(self, tmp_path):
+        from asago_runner.config import ConfigError, RunConfig
+
+        with pytest.raises(ConfigError, match="scenario_json_schema_compat"):
+            RunConfig.load(self._cfg(tmp_path, "lenient"))

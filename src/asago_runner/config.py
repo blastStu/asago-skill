@@ -93,6 +93,10 @@ class RunConfig:
     # Optional throttle for the Policy Mapper's parallel model calls. None
     # leaves the component's own default (32) untouched.
     mapper_max_concurrent: int | None = None
+    # Optional Scenario Generator wire-schema mode: native (component
+    # default) or strict (strip validation-only keywords for OpenAI-strict
+    # validators). None leaves the component default untouched.
+    scenario_json_schema_compat: str | None = None
 
     # -- loading ---------------------------------------------------------
 
@@ -221,6 +225,16 @@ class RunConfig:
                     "options.mapper_max_concurrent must be a positive integer or null"
                 )
             cfg.mapper_max_concurrent = value
+        raw_schema_compat = options.get("scenario_json_schema_compat")
+        if raw_schema_compat in (None, "", "native"):
+            cfg.scenario_json_schema_compat = None
+        elif raw_schema_compat == "strict":
+            cfg.scenario_json_schema_compat = "strict"
+        else:
+            raise ConfigError(
+                "options.scenario_json_schema_compat must be 'native', "
+                "'strict' or null"
+            )
         return cfg
 
     # -- accessors --------------------------------------------------------
@@ -266,6 +280,7 @@ class RunConfig:
                 "ocr": self.ocr,
                 "tools_schema_file": self.tools_schema_file,
                 "mapper_max_concurrent": self.mapper_max_concurrent,
+                "scenario_json_schema_compat": self.scenario_json_schema_compat,
             },
             "telemetry_enabled": self.telemetry_enabled,
             "raw_non_secret": _sanitize_value(raw),
