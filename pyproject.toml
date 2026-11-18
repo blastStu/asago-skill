@@ -9,7 +9,7 @@ dependencies = [
     # Real Asago components, pinned to immutable commits (see
     # references/compatibility-record.md for status and provenance).
     "asago-policy-mapper @ git+https://github.com/blastStu/asago-policy-mapper.git@daf1e1b099392855e1ec9405d80f3bca19c3bf06",
-    "asago-scenario-generator @ git+https://github.com/blastStu/asago-scenario-generator.git@8575087501b0f04e739e758204a34c2c018cee03",
+    "asago-scenario-generator @ git+https://github.com/blastStu/asago-scenario-generator.git@0f9a6aa1b7db0b2dc3a1a2fb38482618fd41484f",
     "asago-artifact-generator @ git+https://github.com/asago-ai/asago-artifact-generator.git@8f481944fd7abd72cd131c14ee9ab366d8d98372",
     # Runner-owned dependencies.
     "typer>=0.12",
